@@ -13,9 +13,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"time"
+
+	buildkite "github.com/kevinburke/buildkite-go/lib"
+	git "github.com/kevinburke/go-git"
 )
 
 const help = `The buildkite binary interacts with Buildkite CI.
@@ -41,6 +46,14 @@ func usage() {
 
 func init() {
 	flag.Usage = usage
+}
+
+func newClient(org string) (*buildkite.Client, error) {
+	token, err := buildkite.GetToken(org)
+	if err != nil {
+		return nil, err
+	}
+	return buildkite.NewClient(token), nil
 }
 
 func main() {
@@ -92,7 +105,28 @@ func failError(err error, msg string) {
 	os.Exit(1)
 }
 
+func getBuilds(ctx context.Context, client *buildkite.Client, org, repo, branch string) (interface{}, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	builds, err := client.Organizations(org).Pipelines(repo).ListBuilds(), jk
+}
+
 func doWait(branch, remoteStr string) error {
 	fmt.Println("wait for branch", branch, "remote", remoteStr)
+	remote, err := git.GetRemoteURL(remoteStr)
+	if err != nil {
+		return err
+	}
+	tip, err := git.Tip(branch)
+	if err != nil {
+		return err
+	}
+	client, err := newClient(remote.Path)
+	if err != nil {
+		return err
+	}
+	fmt.Println("Waiting for latest build on", branch, "to complete")
+	var lastPrintedAt time.Time
+	builds, err := getBuilds(client, remote.Path, remote.RepoName, branch)
 	return nil
 }
