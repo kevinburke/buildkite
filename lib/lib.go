@@ -6,7 +6,9 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/kevinburke/go-types"
 	"github.com/kevinburke/rest/restclient"
 	"github.com/kevinburke/rest/resterror"
 )
@@ -99,11 +101,17 @@ func (o *OrganizationService) Pipeline(pipeline string) *PipelineService {
 type BuildState string
 
 type Build struct {
-	Number  int64      `json:"number"`
-	State   BuildState `json:"state"`
-	Branch  string     `json:"branch"`
-	Commit  string     `json:"commit"`
-	Message string     `json:"message"`
+	Number      int64          `json:"number"`
+	State       BuildState     `json:"state"`
+	Branch      string         `json:"branch"`
+	Commit      string         `json:"commit"`
+	Message     string         `json:"message"`
+	WebURL      string         `json:"web_url"`
+	LogURL      string         `json:"log_url"`
+	CreatedAt   time.Time      `json:"created_at"`
+	StartedAt   time.Time      `json:"started_at"`
+	ScheduledAt types.NullTime `json:"scheduled_at"`
+	FinishedAt  types.NullTime `json:"finished_at"`
 }
 
 type ListBuildResponse []Build

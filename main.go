@@ -22,7 +22,8 @@ import (
 	"os"
 	"time"
 
-	buildkite "github.com/kevinburke/buildkite-go/lib"
+	"github.com/kevinburke/bigtext"
+	buildkite "github.com/kevinburke/buildkite/lib"
 	git "github.com/kevinburke/go-git"
 )
 
@@ -60,6 +61,8 @@ func newClient(org string) (*buildkite.Client, error) {
 }
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	waitflags := flag.NewFlagSet("wait", flag.ExitOnError)
 	waitRemote := waitflags.String("remote", "origin", "Git remote to use")
 	waitflags.Usage = func() {
@@ -88,7 +91,7 @@ branch to wait for.
 		args := waitflags.Args()
 		branch, err := getBranchFromArgs(args)
 		checkError(err, "getting git branch")
-		err = doWait(branch, *waitRemote)
+		err = doWait(ctx, branch, *waitRemote)
 		checkError(err, "waiting for branch")
 	default:
 		fmt.Fprintf(os.Stderr, "buildkite: unknown command %q\n\n", flag.Arg(0))
@@ -122,6 +125,17 @@ func getBuilds(ctx context.Context, client *buildkite.Client, org, repo, branch 
 	return builds, nil
 }
 
+func getLatestBuild(ctx context.Context, client *buildkite.Client, org, repo, branch string) (buildkite.Build, error) {
+	builds, err := getBuilds(ctx, client, org, repo, branch)
+	if err != nil {
+		return buildkite.Build{}, err
+	}
+	if len(builds) == 0 {
+		return buildkite.Build{}, errNoBuilds
+	}
+	return builds[0], nil
+}
+
 var orgMap = map[string]string{
 	"segmentio": "segment",
 }
@@ -151,7 +165,19 @@ func isHttpError(err error) bool {
 
 var errNoBuilds = errors.New("buildkite: no builds")
 
-func doWait(branch, remoteStr string) error {
+// getMinTipLength compares two strings and returns the length of the
+// shortest
+func getMinTipLength(remoteTip string, localTip string) int {
+	var minTipLength int
+	if len(remoteTip) <= len(localTip) {
+		minTipLength = len(remoteTip)
+	} else {
+		minTipLength = len(localTip)
+	}
+	return minTipLength
+}
+
+func doWait(ctx context.Context, branch, remoteStr string) error {
 	fmt.Println("wait for branch", branch, "remote", remoteStr)
 	remote, err := git.GetRemoteURL(remoteStr)
 	if err != nil {
@@ -182,7 +208,7 @@ func doWait(branch, remoteStr string) error {
 		}
 	}
 	for {
-		latestBuild, err := getLatestBuild(client, remote.Path, remote.RepoName, branch)
+		latestBuild, err := getLatestBuild(ctx, client, org, remote.RepoName, branch)
 		if err != nil {
 			if isHttpError(err) {
 				fmt.Printf("Caught network error: %s. Continuing\n", err.Error())
@@ -192,9 +218,50 @@ func doWait(branch, remoteStr string) error {
 			}
 			if err == errNoBuilds {
 				return fmt.Errorf("No results, are you sure there are tests for %s/%s?\n",
-					remote.Path, remote.RepoName)
+					org, remote.RepoName)
 			}
 			return err
+		}
+		c := bigtext.Client{
+			Name:    remote.RepoName + " (github.com/kevinburke/buildkite)",
+			OpenURL: latestBuild.WebURL,
+		}
+		fmt.Println("tip", tip)
+		fmt.Println("latest commit", latestBuild.Commit)
+		if latestBuild.Commit != tip {
+			fmt.Printf("Latest build in Buildkite is %s, waiting for %s...\n",
+				latestBuild.Commit, tip)
+			lastPrintedAt = time.Now()
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		var duration time.Duration
+		if latestBuild.FinishedAt.Valid {
+			duration = latestBuild.FinishedAt.Time.Sub(latestBuild.StartedAt).Round(time.Second)
+		} else {
+			duration = time.Since(latestBuild.StartedAt).Round(time.Second)
+		}
+		if latestBuild.State == "passed" {
+			fmt.Printf("Build on %s succeeded!\n\n", branch)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			_ = ctx
+			defer cancel()
+			/*
+				build, err := client.Builds.Get(ctx, latestBuild.ID, "build.jobs", "job.config")
+				if err == nil {
+					stats, err := client.BuildSummary(ctx, build)
+					if err == nil {
+						fmt.Print(stats)
+					} else {
+						fmt.Printf("error fetching build summary: %v\n", err)
+					}
+				} else {
+					fmt.Printf("error getting build: %v\n", err)
+				}
+			*/
+			fmt.Printf("\nTests on %s took %s. Quitting.\n", branch, duration.String())
+			c.Display(branch + " build complete!")
+			break
 		}
 		_ = previousBuild
 	}
