@@ -14,8 +14,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"time"
 
@@ -105,11 +108,48 @@ func failError(err error, msg string) {
 	os.Exit(1)
 }
 
-func getBuilds(ctx context.Context, client *buildkite.Client, org, repo, branch string) (interface{}, error) {
+func getBuilds(ctx context.Context, client *buildkite.Client, org, repo, branch string) ([]buildkite.Build, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	builds, err := client.Organizations(org).Pipelines(repo).ListBuilds(), jk
+	builds, err := client.Organization(org).Pipeline(repo).ListBuilds(ctx, url.Values{
+		"per_page": []string{"3"},
+		"branch":   []string{branch},
+	})
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("%#v\n", builds)
+	return builds, nil
 }
+
+var orgMap = map[string]string{
+	"segmentio": "segment",
+}
+
+// isHttpError checks if the given error is a request timeout or a network
+// failure - in those cases we want to just retry the request.
+func isHttpError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// some net.OpError's are wrapped in a url.Error
+	if uerr, ok := err.(*url.Error); ok {
+		err = uerr.Err
+	}
+	switch err := err.(type) {
+	default:
+		return false
+	case *net.OpError:
+		return err.Op == "dial" && err.Net == "tcp"
+	case *net.DNSError:
+		return true
+	// Catchall, this needs to go last.
+	case net.Error:
+		return err.Timeout() || err.Temporary()
+	}
+}
+
+var errNoBuilds = errors.New("buildkite: no builds")
 
 func doWait(branch, remoteStr string) error {
 	fmt.Println("wait for branch", branch, "remote", remoteStr)
@@ -127,6 +167,40 @@ func doWait(branch, remoteStr string) error {
 	}
 	fmt.Println("Waiting for latest build on", branch, "to complete")
 	var lastPrintedAt time.Time
-	builds, err := getBuilds(client, remote.Path, remote.RepoName, branch)
+	org := remote.Path
+	if bkOrg, ok := orgMap[org]; ok {
+		org = bkOrg
+	}
+	var previousBuild *buildkite.Build
+	builds, err := getBuilds(context.Background(), client, org, remote.RepoName, branch)
+	if err == nil {
+		for i := 1; i < len(builds); i++ {
+			if builds[i].State == "passed" {
+				previousBuild = &builds[i]
+				break
+			}
+		}
+	}
+	for {
+		latestBuild, err := getLatestBuild(client, remote.Path, remote.RepoName, branch)
+		if err != nil {
+			if isHttpError(err) {
+				fmt.Printf("Caught network error: %s. Continuing\n", err.Error())
+				lastPrintedAt = time.Now()
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			if err == errNoBuilds {
+				return fmt.Errorf("No results, are you sure there are tests for %s/%s?\n",
+					remote.Path, remote.RepoName)
+			}
+			return err
+		}
+		_ = previousBuild
+	}
+	fmt.Println("tip", tip)
+	fmt.Println("builds err", err)
+	fmt.Println("builds", builds)
+	_ = lastPrintedAt
 	return nil
 }
