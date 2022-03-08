@@ -114,6 +114,10 @@ type Build struct {
 	FinishedAt  types.NullTime `json:"finished_at"`
 }
 
+func (b Build) Empty() bool {
+	return b.Number == 0
+}
+
 type ListBuildResponse []Build
 
 func (p *PipelineService) ListBuilds(ctx context.Context, query url.Values) (ListBuildResponse, error) {

@@ -121,7 +121,6 @@ func getBuilds(ctx context.Context, client *buildkite.Client, org, repo, branch 
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("%#v\n", builds)
 	return builds, nil
 }
 
@@ -177,6 +176,33 @@ func getMinTipLength(remoteTip string, localTip string) int {
 	return minTipLength
 }
 
+func shouldPrint(lastPrinted time.Time, duration time.Duration, latestBuild buildkite.Build, previousBuild *buildkite.Build) bool {
+	now := time.Now()
+	var buildDuration time.Duration
+	if previousBuild == nil {
+		buildDuration = 5 * time.Minute
+	} else {
+		buildDuration = previousBuild.FinishedAt.Time.Sub(previousBuild.StartedAt)
+	}
+	var durToUse time.Duration
+	timeRemaining := buildDuration - duration
+	switch {
+	case timeRemaining > 25*time.Minute:
+		durToUse = 3 * time.Minute
+	case timeRemaining > 8*time.Minute:
+		durToUse = 2 * time.Minute
+	case timeRemaining > 5*time.Minute:
+		durToUse = 30 * time.Second
+	case timeRemaining > 3*time.Minute:
+		durToUse = 20 * time.Second
+	case timeRemaining > time.Minute:
+		durToUse = 15 * time.Second
+	default:
+		durToUse = 10 * time.Second
+	}
+	return lastPrinted.Add(durToUse).Before(now)
+}
+
 func doWait(ctx context.Context, branch, remoteStr string) error {
 	fmt.Println("wait for branch", branch, "remote", remoteStr)
 	remote, err := git.GetRemoteURL(remoteStr)
@@ -207,7 +233,8 @@ func doWait(ctx context.Context, branch, remoteStr string) error {
 			}
 		}
 	}
-	for {
+	done := false
+	for !done {
 		latestBuild, err := getLatestBuild(ctx, client, org, remote.RepoName, branch)
 		if err != nil {
 			if isHttpError(err) {
@@ -226,8 +253,6 @@ func doWait(ctx context.Context, branch, remoteStr string) error {
 			Name:    remote.RepoName + " (github.com/kevinburke/buildkite)",
 			OpenURL: latestBuild.WebURL,
 		}
-		fmt.Println("tip", tip)
-		fmt.Println("latest commit", latestBuild.Commit)
 		if latestBuild.Commit != tip {
 			fmt.Printf("Latest build in Buildkite is %s, waiting for %s...\n",
 				latestBuild.Commit, tip)
@@ -241,7 +266,8 @@ func doWait(ctx context.Context, branch, remoteStr string) error {
 		} else {
 			duration = time.Since(latestBuild.StartedAt).Round(time.Second)
 		}
-		if latestBuild.State == "passed" {
+		switch latestBuild.State {
+		case "passed":
 			fmt.Printf("Build on %s succeeded!\n\n", branch)
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			_ = ctx
@@ -261,13 +287,50 @@ func doWait(ctx context.Context, branch, remoteStr string) error {
 			*/
 			fmt.Printf("\nTests on %s took %s. Quitting.\n", branch, duration.String())
 			c.Display(branch + " build complete!")
-			break
+			return nil
+		case "failed":
+			/*
+				build, err := getBuild(client, latestBuild.ID)
+				if err == nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+					defer cancel()
+					stats, err := client.BuildSummary(ctx, build)
+					if err == nil {
+						fmt.Print(stats)
+					} else {
+						fmt.Printf("error fetching build stats: %v\n", err)
+					}
+				} else {
+					fmt.Printf("error getting build: %v\n", err)
+				}
+			*/
+			fmt.Printf("\nURL: %s\n", latestBuild.WebURL)
+			err = fmt.Errorf("Build on %s failed!\n\n", branch)
+			c.Display("build failed")
+			return err
+		case "running":
+			// Show more and more output as we approach the duration of the previous
+			// successful build.
+			if shouldPrint(lastPrintedAt, duration, latestBuild, previousBuild) {
+				fmt.Printf("Build %d running (%s elapsed)\n", latestBuild.Number, duration.String())
+				lastPrintedAt = time.Now()
+			}
+		default:
+			fmt.Printf("State is %s, trying again\n", latestBuild.State)
+			lastPrintedAt = time.Now()
+		}
+		select {
+		case <-time.After(3 * time.Second):
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 		_ = previousBuild
 	}
-	fmt.Println("tip", tip)
-	fmt.Println("builds err", err)
-	fmt.Println("builds", builds)
+	/*
+		fmt.Println("tip", tip)
+		fmt.Println("builds err", err)
+		fmt.Println("builds", builds)
+	*/
 	_ = lastPrintedAt
 	return nil
 }
