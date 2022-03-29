@@ -1,4 +1,9 @@
+Large portions of this repo's source code were copied directly from
+github.com/kevinburke/travis, github.com/kevinburke/go-circle etc which were
+developed by Kevin Burke.
+
 Copyright (c) 2022 Kevin Burke.
+Copyright (c) 2022 Twilio, Inc.
 
 Permission is hereby granted, free of charge, to any person
 obtaining a copy of this software and associated documentation
