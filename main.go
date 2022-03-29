@@ -52,8 +52,8 @@ func init() {
 	flag.Usage = usage
 }
 
-func newClient(org string) (*buildkite.Client, error) {
-	token, err := buildkite.GetToken(org)
+func newClient(ctx context.Context, org string) (*buildkite.Client, error) {
+	token, err := buildkite.GetToken(ctx, org)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ func doWait(ctx context.Context, branch, remoteStr string) error {
 	if err != nil {
 		return err
 	}
-	client, err := newClient(remote.Path)
+	client, err := newClient(ctx, remote.Path)
 	if err != nil {
 		return err
 	}

@@ -1,13 +1,17 @@
 package lib
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/kevinburke/go-types"
 	"github.com/kevinburke/rest/restclient"
 	"github.com/kevinburke/rest/resterror"
@@ -137,8 +141,129 @@ func getHost() string {
 	return Host
 }
 
-func GetToken(org string) (string, error) {
-	return os.Getenv("BUILDKITE_TOKEN"), nil
+type Organization struct {
+	Token string
+	// List of git remotes that map to this Buildkite organization
+	GitRemotes []string `toml:"git_remotes"`
+}
+
+// getCaseInsensitiveOrg finds the key in the list of orgs. This is a case
+// insensitive match, so if key is "ExaMple" and orgs has a key named "eXAMPLE",
+// that will count as a match.
+func getCaseInsensitiveOrg(key string, orgs map[string]Organization) (Organization, bool) {
+	for k, _ := range orgs {
+		lower := strings.ToLower(k)
+		if _, ok := orgs[lower]; !ok {
+			orgs[lower] = orgs[k]
+			delete(orgs, k)
+		}
+	}
+	lowerKey := strings.ToLower(key)
+	if o, ok := orgs[lowerKey]; ok {
+		return o, true
+	} else {
+		return Organization{}, false
+	}
+}
+
+type FileConfig struct {
+	Default       string
+	Organizations map[string]Organization `toml:"organizations"`
+}
+
+// LoadConfig loads and marshals a config file from disk. LoadConfig will look
+// in the following locations in order:
+//
+// - $XDG_CONFIG_HOME/buildkite
+// - $HOME/cfg/buildkite
+// - $HOME/.buildkite
+func LoadConfig(ctx context.Context) (*FileConfig, error) {
+	var filename string
+	var f *os.File
+	var err error
+	checkedLocations := make([]string, 1)
+	deadline, deadlineOk := ctx.Deadline()
+	if cfg, ok := os.LookupEnv("XDG_CONFIG_HOME"); ok {
+		filename = filepath.Join(cfg, "buildkite")
+		f, err = os.Open(filename)
+		checkedLocations[0] = filename
+	} else {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		filename = filepath.Join(homeDir, "cfg", "buildkite")
+		f, err = os.Open(filename)
+		checkedLocations[0] = filename
+		if err != nil { // fallback
+			rcFilename := filepath.Join(homeDir, ".buildkite")
+			f, err = os.Open(rcFilename)
+			checkedLocations = append(checkedLocations, rcFilename)
+		}
+	}
+	if deadlineOk {
+		f.SetDeadline(deadline)
+	}
+	if err != nil {
+		err = fmt.Errorf(`Couldn't find a config file in %s.
+
+Add a configuration file with your Buildkite token, like this:
+
+[organizations]
+
+    [organizations.buildkite_org]
+    token = "aabbccddeeff00"
+    git_remote = "github_org"
+
+Go to https://buildkite.com/user/api-access-tokens if you need to find your token.
+`, strings.Join(checkedLocations, " or "))
+		return nil, err
+	}
+	defer f.Close()
+	var c FileConfig
+	if _, err := toml.DecodeReader(bufio.NewReader(f), &c); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// Token finds the token for a given organization.
+func (f *FileConfig) Token(orgStr string) (string, error) {
+	org, ok := getCaseInsensitiveOrg(orgStr, f.Organizations)
+	if ok {
+		return org.Token, nil
+	}
+	if f.Default != "" {
+		defaultOrg, ok := getCaseInsensitiveOrg(f.Default, f.Organizations)
+		if ok {
+			return defaultOrg.Token, nil
+		}
+		return "", fmt.Errorf(`Couldn't find organization %s in the config.
+
+Go to https://buildkite.com/user/api-access-tokens if you need to create or find a token.
+		`, orgStr)
+	}
+	return "", fmt.Errorf(`Couldn't find organization %s in the config.
+
+Set one of your organizations to be the default:
+
+default = "kevinburke"
+
+[organizations]
+
+	[organizations.kevinburke]
+	token = "abcdef-bcd-fgh"
+
+Or go to https://buildkite.com/user/api-access-tokens if you need to find your token.
+		`, orgStr)
+}
+
+func GetToken(ctx context.Context, org string) (string, error) {
+	cfg, err := LoadConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+	return cfg.Token(org)
 }
 
 func NewClient(token string) *Client {
