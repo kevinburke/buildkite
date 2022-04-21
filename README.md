@@ -10,6 +10,16 @@ In the future we may offer compiled binaries, for now just download the source:
 go install github.com/kevinburke/buildkite@latest
 ```
 
+## Roadmap
+
+Implement the features from e.g. github.com/kevinburke/go-circle, for example:
+
+- Print out timings for each step of a completed build
+- Download and display build logs for failed build steps
+- "open" command to open a browser
+- download build artifacts
+- cancel or rebuild builds on a given branch
+
 ### Configuration
 
 You need an API token that you can get from https://buildkite.com/user/api-access-tokens. Once you have that, put a file in one of the following locations:
@@ -23,7 +33,7 @@ You need an API token that you can get from https://buildkite.com/user/api-acces
 With e.g. the following contents:
 
 ```toml
-# buildkite-go config file
+# buildkite config file: github.com/kevinburke/buildkite
 
 # Default organization to load a token from if none of your configurations match.
 default = "kevinburke"
@@ -33,7 +43,7 @@ default = "kevinburke"
     [organizations.example]
     token = "token_for_example_org"
     # If your Github org name does not match the Buildkite org name, add
-    a mapping here - in this case the org is at github.com/example_gh
+    # a mapping here - in this case the org is at github.com/example_gh
     git_remotes = [
         'example_gh'
     ]
