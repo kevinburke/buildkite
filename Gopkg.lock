@@ -55,6 +55,25 @@
   revision = "1fcb8c8e902286848c3f2dda2c432163c79e0604"
   version = "2.6"
 
+[[projects]]
+  branch = "master"
+  digest = "1:02bf1be620807d71e8975ba373b1ce2cd97fefcc95d676a98fad4bb498f27083"
+  name = "github.com/pkg/browser"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "681adbf594b8314eb76d83a271f4a1c152d057d9"
+
+[[projects]]
+  branch = "master"
+  digest = "1:602d7a2c6a15926c4f2d2fb39a7e8df040c886f381f51faa9704ec568de4ba6d"
+  name = "golang.org/x/sys"
+  packages = [
+    "internal/unsafeheader",
+    "windows",
+  ]
+  pruneopts = "UT"
+  revision = "45d2b4557a2a50b687a904f1bd993f5881d3a23a"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
@@ -65,6 +84,7 @@
     "github.com/kevinburke/go-types",
     "github.com/kevinburke/rest/restclient",
     "github.com/kevinburke/rest/resterror",
+    "github.com/pkg/browser",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1

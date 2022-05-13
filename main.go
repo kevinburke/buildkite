@@ -25,6 +25,7 @@ import (
 	"github.com/kevinburke/bigtext"
 	buildkite "github.com/kevinburke/buildkite/lib"
 	git "github.com/kevinburke/go-git"
+	"github.com/pkg/browser"
 )
 
 const help = `The buildkite binary interacts with Buildkite CI.
@@ -35,6 +36,7 @@ Usage:
 
 The commands are:
 
+	open                Open the running build in your browser
 	version             Print the current version
 	wait                Wait for tests to finish on a branch.
 
@@ -64,6 +66,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	waitflags := flag.NewFlagSet("wait", flag.ExitOnError)
+	openflags := flag.NewFlagSet("open", flag.ExitOnError)
 	waitRemote := waitflags.String("remote", "origin", "Git remote to use")
 	waitflags.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: wait [refspec]
@@ -108,6 +111,11 @@ branch to wait for.
 		fmt.Println("wait for branch", branch, "remote", *waitRemote)
 		err = doWait(ctx, client, org, remote, branch)
 		checkError(err, "waiting for branch")
+	case "open":
+		openflags.Parse(subargs)
+		branch, err := getBranchFromArgs(args)
+		checkError(err, "getting git branch")
+		checkError(doOpen(ctx, openflags, client, org, remote, branch), "opening build")
 	default:
 		fmt.Fprintf(os.Stderr, "buildkite: unknown command %q\n\n", flag.Arg(0))
 		usage()
@@ -218,6 +226,38 @@ func shouldPrint(lastPrinted time.Time, duration time.Duration, latestBuild buil
 	return lastPrinted.Add(durToUse).Before(now)
 }
 
+func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string) error {
+	tip, err := git.Tip(branch)
+	if err != nil {
+		return err
+	}
+	for {
+		latestBuild, err := getLatestBuild(ctx, client, org.Name, remote.RepoName, branch)
+		if err != nil {
+			if isHttpError(err) {
+				fmt.Printf("Caught network error: %s. Continuing\n", err.Error())
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			if err == errNoBuilds {
+				return fmt.Errorf("No results, are you sure there are tests for %s/%s?\n",
+					remote.Path, remote.RepoName)
+			}
+			return err
+		}
+		if latestBuild.Commit != tip {
+			fmt.Printf("Latest build in Buildkite is %s, waiting for %s...\n",
+				latestBuild.Commit, tip)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		if err := browser.OpenURL(latestBuild.WebURL); err != nil {
+			return err
+		}
+		return nil
+	}
+}
+
 func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string) error {
 	tip, err := git.Tip(branch)
 	if err != nil {
@@ -251,10 +291,6 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			}
 			return err
 		}
-		c := bigtext.Client{
-			Name:    remote.RepoName + " (github.com/kevinburke/buildkite)",
-			OpenURL: latestBuild.WebURL,
-		}
 		if latestBuild.Commit != tip {
 			fmt.Printf("Latest build in Buildkite is %s, waiting for %s...\n",
 				latestBuild.Commit, tip)
@@ -267,6 +303,10 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			duration = latestBuild.FinishedAt.Time.Sub(latestBuild.StartedAt).Round(time.Second)
 		} else {
 			duration = time.Since(latestBuild.StartedAt).Round(time.Second)
+		}
+		c := bigtext.Client{
+			Name:    remote.RepoName + " (github.com/kevinburke/buildkite)",
+			OpenURL: latestBuild.WebURL,
 		}
 		switch latestBuild.State {
 		case "passed":
