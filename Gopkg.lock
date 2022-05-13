@@ -2,6 +2,17 @@
 
 
 [[projects]]
+  digest = "1:018965899654fc9a2d7c0c4349a78cf896d4d8e32b956623d0d8967febe5b382"
+  name = "github.com/BurntSushi/toml"
+  packages = [
+    ".",
+    "internal",
+  ]
+  pruneopts = "UT"
+  revision = "891d2617ddbdfa265c4095b53103c010c98e6591"
+  version = "v1.1.0"
+
+[[projects]]
   digest = "1:d35282036dd7e806bbfadb9d537042ba24a086178565b9547253b8ef48941766"
   name = "github.com/gofrs/uuid"
   packages = ["."]
@@ -48,6 +59,7 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/BurntSushi/toml",
     "github.com/kevinburke/bigtext",
     "github.com/kevinburke/go-git",
     "github.com/kevinburke/go-types",
