@@ -142,6 +142,8 @@ func getHost() string {
 }
 
 type Organization struct {
+	// This is the map key, so it needs to be explicitly set.
+	Name  string
 	Token string
 	// List of git remotes that map to this Buildkite organization
 	GitRemotes []string `toml:"git_remotes"`
@@ -167,7 +169,8 @@ func getCaseInsensitiveOrg(key string, orgs map[string]Organization) (Organizati
 }
 
 type FileConfig struct {
-	Default       string
+	Default string
+	// Map key is the Buildkite name
 	Organizations map[string]Organization `toml:"organizations"`
 }
 
@@ -224,26 +227,56 @@ Go to https://buildkite.com/user/api-access-tokens if you need to find your toke
 	if _, err := toml.DecodeReader(bufio.NewReader(f), &c); err != nil {
 		return nil, err
 	}
+	// set the name explicitly
+	for i := range c.Organizations {
+		entry := c.Organizations[i]
+		entry.Name = i
+		c.Organizations[i] = entry
+	}
 	return &c, nil
 }
 
-// Token finds the token for a given organization.
-func (f *FileConfig) Token(orgStr string) (string, error) {
-	org, ok := getCaseInsensitiveOrg(orgStr, f.Organizations)
+func (f *FileConfig) OrgForRemote(gitRemote string) (Organization, bool) {
+	orgsByRemote := make(map[string]Organization)
+	for _, org := range f.Organizations {
+		for _, rm := range org.GitRemotes {
+			orgsByRemote[rm] = org
+		}
+	}
+	org, ok := orgsByRemote[gitRemote]
+	return org, ok
+}
+
+// Token finds the token for a given git remote.
+func (f *FileConfig) Token(gitRemote string) (string, error) {
+	orgsByRemote := make(map[string]Organization)
+	for _, org := range f.Organizations {
+		for _, rm := range org.GitRemotes {
+			orgsByRemote[rm] = org
+		}
+	}
+	org, ok := getCaseInsensitiveOrg(gitRemote, orgsByRemote)
 	if ok {
 		return org.Token, nil
 	}
 	if f.Default != "" {
-		defaultOrg, ok := getCaseInsensitiveOrg(f.Default, f.Organizations)
+		defaultOrg, ok := getCaseInsensitiveOrg(f.Default, orgsByRemote)
 		if ok {
 			return defaultOrg.Token, nil
 		}
-		return "", fmt.Errorf(`Couldn't find organization %s in the config.
+		// try the other way too
+		defaultOrg, ok = getCaseInsensitiveOrg(f.Default, f.Organizations)
+		if ok {
+			return defaultOrg.Token, nil
+		}
+		return "", fmt.Errorf(
+			`Couldn't find an organization for git remote %s in the config.
 
 Go to https://buildkite.com/user/api-access-tokens if you need to create or find a token.
-		`, orgStr)
+		`, gitRemote)
 	}
-	return "", fmt.Errorf(`Couldn't find organization %s in the config.
+	return "", fmt.Errorf(
+		`Couldn't find an organization for git remote %s in the config.
 
 Set one of your organizations to be the default:
 
@@ -251,11 +284,11 @@ default = "kevinburke"
 
 [organizations]
 
-	[organizations.kevinburke]
+	[organizations.kevinburke-buildkite]
 	token = "abcdef-bcd-fgh"
 
 Or go to https://buildkite.com/user/api-access-tokens if you need to find your token.
-		`, orgStr)
+		`, gitRemote)
 }
 
 func GetToken(ctx context.Context, org string) (string, error) {

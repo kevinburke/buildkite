@@ -52,8 +52,8 @@ func init() {
 	flag.Usage = usage
 }
 
-func newClient(ctx context.Context, org string) (*buildkite.Client, error) {
-	token, err := buildkite.GetToken(ctx, org)
+func newClient(cfg *buildkite.FileConfig, gitRemote string) (*buildkite.Client, error) {
+	token, err := cfg.Token(gitRemote)
 	if err != nil {
 		return nil, err
 	}
@@ -82,16 +82,31 @@ branch to wait for.
 		os.Exit(2)
 	}
 	subargs := args[1:]
-	switch flag.Arg(0) {
-	case "version":
+	if flag.Arg(0) == "version" {
 		fmt.Fprintf(os.Stdout, "buildkite version %s\n", Version)
 		os.Exit(0)
+	}
+	cfg, err := buildkite.LoadConfig(ctx)
+	checkError(err, "loading buildkite config")
+	remote, err := git.GetRemoteURL(*waitRemote)
+	checkError(err, "loading git info")
+	gitRemote := remote.Path
+	org, ok := cfg.OrgForRemote(gitRemote)
+	if !ok {
+		checkError(fmt.Errorf("could not find a Buildkite org for remote %q", gitRemote), "")
+	}
+	client, err := newClient(cfg, gitRemote)
+	if err != nil {
+		checkError(err, "creating Buildkite client")
+	}
+	switch flag.Arg(0) {
 	case "wait":
 		waitflags.Parse(subargs)
 		args := waitflags.Args()
 		branch, err := getBranchFromArgs(args)
 		checkError(err, "getting git branch")
-		err = doWait(ctx, branch, *waitRemote)
+		fmt.Println("wait for branch", branch, "remote", *waitRemote)
+		err = doWait(ctx, client, org, remote, branch)
 		checkError(err, "waiting for branch")
 	default:
 		fmt.Fprintf(os.Stderr, "buildkite: unknown command %q\n\n", flag.Arg(0))
@@ -203,28 +218,15 @@ func shouldPrint(lastPrinted time.Time, duration time.Duration, latestBuild buil
 	return lastPrinted.Add(durToUse).Before(now)
 }
 
-func doWait(ctx context.Context, branch, remoteStr string) error {
-	fmt.Println("wait for branch", branch, "remote", remoteStr)
-	remote, err := git.GetRemoteURL(remoteStr)
-	if err != nil {
-		return err
-	}
+func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string) error {
 	tip, err := git.Tip(branch)
-	if err != nil {
-		return err
-	}
-	client, err := newClient(ctx, remote.Path)
 	if err != nil {
 		return err
 	}
 	fmt.Println("Waiting for latest build on", branch, "to complete")
 	var lastPrintedAt time.Time
-	org := remote.Path
-	if bkOrg, ok := orgMap[org]; ok {
-		org = bkOrg
-	}
 	var previousBuild *buildkite.Build
-	builds, err := getBuilds(context.Background(), client, org, remote.RepoName, branch)
+	builds, err := getBuilds(ctx, client, org.Name, remote.RepoName, branch)
 	if err == nil {
 		for i := 1; i < len(builds); i++ {
 			if builds[i].State == "passed" {
@@ -235,7 +237,7 @@ func doWait(ctx context.Context, branch, remoteStr string) error {
 	}
 	done := false
 	for !done {
-		latestBuild, err := getLatestBuild(ctx, client, org, remote.RepoName, branch)
+		latestBuild, err := getLatestBuild(ctx, client, org.Name, remote.RepoName, branch)
 		if err != nil {
 			if isHttpError(err) {
 				fmt.Printf("Caught network error: %s. Continuing\n", err.Error())
