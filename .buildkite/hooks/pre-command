@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+echo "--- :golang: Setting up Golang build environment"
+
+if [[ -n "${BUILDKITE_GOLANG_IMPORT_PATH:-}" ]] && [[ "$BUILDKITE_GOLANG_IMPORT_PATH" != "" ]]; then
+  NEW_GOPATH="$(pwd)/go"
+  NEW_BUILD_CHECKOUT_PATH="$NEW_GOPATH/src/$BUILDKITE_GOLANG_IMPORT_PATH"
+
+  # Create the regular GOPATH folders
+  mkdir -p "$NEW_GOPATH/bin"
+  mkdir -p "$NEW_GOPATH/src"
+
+  mkdir -p "$NEW_BUILD_CHECKOUT_PATH"
+  rm -rf "$NEW_BUILD_CHECKOUT_PATH"
+  # rsync easier than "move into subdirectory without including subdirectory"
+  rsync --remove-source-files --archive --human-readable --exclude=./go . "$NEW_BUILD_CHECKOUT_PATH"
+  rsync --archive --delete --exclude=go --exclude='.buildkite' "$(mktemp -d)/" ./
+
+  export GOPATH=$NEW_GOPATH
+  export WORKING_DIRECTORY="${NEW_BUILD_CHECKOUT_PATH}"
+  echo "\$GOPATH is set to $NEW_GOPATH"
+  echo "Build will now be at $NEW_BUILD_CHECKOUT_PATH"
+else
+  echo "No \$BUILDKITE_GOLANG_IMPORT_PATH set, skipping..."
+fi

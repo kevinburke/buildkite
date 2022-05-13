@@ -1,0 +1,11 @@
+env:
+  PATH: /Users/kevinburke/bin:/Users/kevinburke/go/bin:$PATH
+  BUILDKITE_GOLANG_IMPORT_PATH: "github.com/kevinburke/buildkite"
+  TZ: UTC
+
+steps:
+- label: test
+  commands: |
+    cd "\$WORKING_DIRECTORY" && make test
+  env:
+    GO111MODULE: 'off'
