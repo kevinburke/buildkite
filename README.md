@@ -13,6 +13,15 @@ download the source:
 go install github.com/kevinburke/buildkite@latest
 ```
 
+If you want to get notifications when builds complete, [install the
+terminal-notifier app][terminal-notifier]:
+
+```
+brew install terminal-notifier
+```
+
+[terminal-notifier]: https://github.com/julienXX/terminal-notifier
+
 ## Roadmap
 
 Implement the features from e.g. github.com/kevinburke/go-circle, for example:
