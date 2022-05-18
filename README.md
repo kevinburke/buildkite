@@ -1,10 +1,13 @@
 # buildkite-go
 
-This is a Buildkite client that's designed to be used with Buildkite builds.
+This is a Buildkite client that's designed to be used with Buildkite builds. It
+will wait for the current Git commit to build and then tell you whether it
+passed or failed.
 
 ### Installation
 
-In the future we may offer compiled binaries, for now just download the source:
+In the future we may offer compiled binaries, for now the best way is to
+download the source:
 
 ```
 go install github.com/kevinburke/buildkite@latest
@@ -14,15 +17,15 @@ go install github.com/kevinburke/buildkite@latest
 
 Implement the features from e.g. github.com/kevinburke/go-circle, for example:
 
-- Print out timings for each step of a completed build
 - Download and display build logs for failed build steps
-- "open" command to open a browser
 - download build artifacts
 - cancel or rebuild builds on a given branch
 
 ### Configuration
 
-You need an API token that you can get from https://buildkite.com/user/api-access-tokens. Once you have that, put a file in one of the following locations:
+You need to add a local config file. Get a API token from
+https://buildkite.com/user/api-access-tokens. Once you have that, add the config
+file in one of the following locations:
 
 ```
 - $XDG_CONFIG_HOME/buildkite
@@ -30,7 +33,7 @@ You need an API token that you can get from https://buildkite.com/user/api-acces
 - $HOME/.buildkite
 ```
 
-With e.g. the following contents:
+With these contents:
 
 ```toml
 # buildkite config file: github.com/kevinburke/buildkite
@@ -40,6 +43,7 @@ default = "kevinburke"
 
 [organizations]
 
+    # "example" is the name of your Buildkite org
     [organizations.example]
     token = "token_for_example_org"
     # If your Github org name does not match the Buildkite org name, add
