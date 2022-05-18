@@ -111,7 +111,6 @@ branch to wait for.
 		args := waitflags.Args()
 		branch, err := getBranchFromArgs(args)
 		checkError(err, "getting git branch")
-		fmt.Println("wait for branch", branch, "remote", *waitRemote)
 		err = doWait(ctx, client, org, remote, branch)
 		checkError(err, "waiting for branch")
 	case "open":
