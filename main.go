@@ -27,8 +27,8 @@ import (
 	"github.com/kevinburke/bigtext"
 	buildkite "github.com/kevinburke/buildkite/lib"
 	git "github.com/kevinburke/go-git"
-	"github.com/moby/term"
 	"github.com/pkg/browser"
+	"golang.org/x/term"
 )
 
 const help = `The buildkite binary interacts with Buildkite CI.
@@ -305,7 +305,7 @@ func buildSummary(build buildkite.Build) []byte {
 }
 
 func isatty() bool {
-	return term.IsTerminal(os.Stdout.Fd())
+	return term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string) error {

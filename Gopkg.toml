@@ -37,6 +37,18 @@
   name = "github.com/kevinburke/rest"
   version = "2.6.0"
 
+[[constraint]]
+  name = "github.com/juju/ansiterm"
+  branch = "master"
+
+[[constraint]]
+  name = "golang.org/x/term"
+  branch = "master"
+
+[[constraint]]
+  name = "github.com/pkg/browser"
+  branch = "master"
+
 [prune]
   go-tests = true
   unused-packages = true

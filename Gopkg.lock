@@ -2,17 +2,6 @@
 
 
 [[projects]]
-  branch = "master"
-  digest = "1:ce1680729c7ee2681db7ddfb5b1d307705ba96bd6f8a9c38b34053567232ba89"
-  name = "github.com/Azure/go-ansiterm"
-  packages = [
-    ".",
-    "winterm",
-  ]
-  pruneopts = "UT"
-  revision = "d185dfc1b5a126116ea5a19e148e29d16b4574c9"
-
-[[projects]]
   digest = "1:018965899654fc9a2d7c0c4349a78cf896d4d8e32b956623d0d8967febe5b382"
   name = "github.com/BurntSushi/toml"
   packages = [
@@ -84,17 +73,6 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:553d5c7660a1d5bf6e2c31db9ec4c05ee4bf7e518171901c8ba2596c2af617a9"
-  name = "github.com/moby/term"
-  packages = [
-    ".",
-    "windows",
-  ]
-  pruneopts = "UT"
-  revision = "3f7ff695adc6a35abc925370dd0a4dafb48ec64d"
-
-[[projects]]
-  branch = "master"
   digest = "1:02bf1be620807d71e8975ba373b1ce2cd97fefcc95d676a98fad4bb498f27083"
   name = "github.com/pkg/browser"
   packages = ["."]
@@ -103,15 +81,24 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:3f10bdb3c62ab5c9867b39b8b2f6519f285be8219201bfb8f3a50458b480dd86"
+  digest = "1:f44e92167ce68d42b1523107a7195701e4849290ac36a396fea99460713b52ac"
   name = "golang.org/x/sys"
   packages = [
     "internal/unsafeheader",
+    "plan9",
     "unix",
     "windows",
   ]
   pruneopts = "UT"
   revision = "45d2b4557a2a50b687a904f1bd993f5881d3a23a"
+
+[[projects]]
+  branch = "master"
+  digest = "1:a59e28d301b916e05bc86776625dd953bd670a608453970d9881f26ccbda5abb"
+  name = "golang.org/x/term"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "e5f449aeb1717c7a4156811d5d65510fee9d1530"
 
 [solve-meta]
   analyzer-name = "dep"
@@ -124,8 +111,8 @@
     "github.com/kevinburke/go-types",
     "github.com/kevinburke/rest/restclient",
     "github.com/kevinburke/rest/resterror",
-    "github.com/moby/term",
     "github.com/pkg/browser",
+    "golang.org/x/term",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1
