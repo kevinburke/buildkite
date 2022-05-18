@@ -2,6 +2,17 @@
 
 
 [[projects]]
+  branch = "master"
+  digest = "1:ce1680729c7ee2681db7ddfb5b1d307705ba96bd6f8a9c38b34053567232ba89"
+  name = "github.com/Azure/go-ansiterm"
+  packages = [
+    ".",
+    "winterm",
+  ]
+  pruneopts = "UT"
+  revision = "d185dfc1b5a126116ea5a19e148e29d16b4574c9"
+
+[[projects]]
   digest = "1:018965899654fc9a2d7c0c4349a78cf896d4d8e32b956623d0d8967febe5b382"
   name = "github.com/BurntSushi/toml"
   packages = [
@@ -19,6 +30,14 @@
   pruneopts = "UT"
   revision = "0c84a43ce25087b7041833685982950a65630d28"
   version = "v4.2.0"
+
+[[projects]]
+  branch = "master"
+  digest = "1:e6d84de5bc9cd4cf4cfe4bce65b449cbdd8b1d613c72444940d4df2c68aeb2d1"
+  name = "github.com/juju/ansiterm"
+  packages = ["tabwriter"]
+  pruneopts = "UT"
+  revision = "8b71cc96ebdcf1786021219160dacfda2b51cdbe"
 
 [[projects]]
   digest = "1:5201d435c156e730eedb0ce43d47b102860d514cb082fbe4b5cd837d5d6e3ac8"
@@ -56,6 +75,25 @@
   version = "2.6"
 
 [[projects]]
+  digest = "1:2dc8db55c5b223e6cd50aa7915e698cfcf56d1ddfa89bbbf65e24729e0a0200a"
+  name = "github.com/lunixbochs/vtclean"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "88cfb0c2efe8ed7b0ccf0af83db39359829027bb"
+  version = "v1.0.0"
+
+[[projects]]
+  branch = "master"
+  digest = "1:553d5c7660a1d5bf6e2c31db9ec4c05ee4bf7e518171901c8ba2596c2af617a9"
+  name = "github.com/moby/term"
+  packages = [
+    ".",
+    "windows",
+  ]
+  pruneopts = "UT"
+  revision = "3f7ff695adc6a35abc925370dd0a4dafb48ec64d"
+
+[[projects]]
   branch = "master"
   digest = "1:02bf1be620807d71e8975ba373b1ce2cd97fefcc95d676a98fad4bb498f27083"
   name = "github.com/pkg/browser"
@@ -65,10 +103,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:602d7a2c6a15926c4f2d2fb39a7e8df040c886f381f51faa9704ec568de4ba6d"
+  digest = "1:3f10bdb3c62ab5c9867b39b8b2f6519f285be8219201bfb8f3a50458b480dd86"
   name = "golang.org/x/sys"
   packages = [
     "internal/unsafeheader",
+    "unix",
     "windows",
   ]
   pruneopts = "UT"
@@ -79,11 +118,13 @@
   analyzer-version = 1
   input-imports = [
     "github.com/BurntSushi/toml",
+    "github.com/juju/ansiterm/tabwriter",
     "github.com/kevinburke/bigtext",
     "github.com/kevinburke/go-git",
     "github.com/kevinburke/go-types",
     "github.com/kevinburke/rest/restclient",
     "github.com/kevinburke/rest/resterror",
+    "github.com/moby/term",
     "github.com/pkg/browser",
   ]
   solver-name = "gps-cdcl"

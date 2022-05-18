@@ -116,7 +116,25 @@ type Build struct {
 	StartedAt   time.Time      `json:"started_at"`
 	ScheduledAt types.NullTime `json:"scheduled_at"`
 	FinishedAt  types.NullTime `json:"finished_at"`
+	Jobs        []Job          `json:"jobs"`
 }
+
+type Job struct {
+	Name        string         `json:"name"`
+	Command     string         `json:"command"`
+	State       JobState       `json:"state"`
+	CreatedAt   time.Time      `json:"created_at"`
+	StartedAt   time.Time      `json:"started_at"`
+	ScheduledAt types.NullTime `json:"scheduled_at"`
+	FinishedAt  types.NullTime `json:"finished_at"`
+}
+
+func (j Job) Failed() bool {
+	// TODO
+	return j.State == "failed"
+}
+
+type JobState string
 
 func (b Build) Empty() bool {
 	return b.Number == 0
