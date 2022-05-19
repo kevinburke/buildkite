@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -11,7 +12,7 @@ import (
 	"strings"
 )
 
-const version = "0.8"
+const version = "0.9"
 
 type GitFormat int
 
@@ -118,6 +119,42 @@ func ParseRemoteURL(remoteURL string) (*RemoteURL, error) {
 
 			Format: HTTPSFormat,
 		}, nil
+	}
+	u, err := url.Parse(remoteURL)
+	if err != nil {
+		return nil, fmt.Errorf("Could not parse %s as a git remote", remoteURL)
+	}
+	if u.Scheme == "ssh" {
+		// long SSH format
+		rmurl := &RemoteURL{
+			Format:  SSHFormat,
+			SSHUser: u.User.Username(),
+			Host:    u.Hostname(),
+			URL:     remoteURL,
+		}
+		portstr := u.Port()
+		if portstr == "" {
+			rmurl.Port = 22
+		} else {
+			port, err := strconv.Atoi(portstr)
+			if err != nil && port < 0 {
+				return nil, fmt.Errorf("Could not parse %s as a git remote: port was not a valid number", remoteURL)
+			}
+			rmurl.Port = port
+		}
+		path := strings.TrimPrefix(u.Path, "/")
+		pathparts := strings.Split(path, "/")
+		// this might be too "tight" but in practice this is how remote URL's
+		// are formed at most every git repo
+		if len(pathparts) > 2 {
+			return nil, fmt.Errorf("Could not parse %s as a git remote: too many slashes in repo name", remoteURL)
+		}
+		if len(pathparts) <= 1 {
+			return nil, fmt.Errorf("Could not parse %s as a git remote: could not find both org and repo", remoteURL)
+		}
+		rmurl.Path = pathparts[0]
+		rmurl.RepoName = strings.TrimSuffix(pathparts[1], ".git")
+		return rmurl, nil
 	}
 	return nil, fmt.Errorf("Could not parse %s as a git remote", remoteURL)
 }

@@ -1,4 +1,4 @@
-# 0.7
+# 0.8
 
 git.Tip now returns the full commit SHA instead of the `--short` version.
 
