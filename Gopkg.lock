@@ -13,6 +13,14 @@
   version = "v1.1.0"
 
 [[projects]]
+  branch = "master"
+  digest = "1:0f6feb37f6b7e87240b3398565f6e79b06b661d484e9dcbfe7c50af367d3d3d9"
+  name = "github.com/andybrewer/mack"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "22e922cc18af0f421973e891c806fe61537257ea"
+
+[[projects]]
   digest = "1:d35282036dd7e806bbfadb9d537042ba24a086178565b9547253b8ef48941766"
   name = "github.com/gofrs/uuid"
   packages = ["."]
@@ -29,12 +37,12 @@
   revision = "8b71cc96ebdcf1786021219160dacfda2b51cdbe"
 
 [[projects]]
-  digest = "1:5201d435c156e730eedb0ce43d47b102860d514cb082fbe4b5cd837d5d6e3ac8"
+  digest = "1:195634a4079ab27dfef8afc71c5d34263544142a7812d412e6e50a090c0ec3b6"
   name = "github.com/kevinburke/bigtext"
   packages = ["."]
   pruneopts = "UT"
-  revision = "fd72dcfb912b32532896bbc98413e5bd425eb315"
-  version = "0.2"
+  revision = "c26d116ded71620f4b8edeffb3e8838d9d52bfa8"
+  version = "0.3"
 
 [[projects]]
   digest = "1:f66a1f5b2c164e02df49acb8d49ead69f8df167549291156789cbb712c068d01"

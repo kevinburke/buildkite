@@ -354,8 +354,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			duration = time.Since(latestBuild.StartedAt).Round(time.Second)
 		}
 		c := bigtext.Client{
-			Name:    remote.RepoName + " (github.com/kevinburke/buildkite)",
-			OpenURL: latestBuild.WebURL,
+			Name: "buildkite (" + remote.RepoName + ")",
 		}
 		switch latestBuild.State {
 		case "passed":

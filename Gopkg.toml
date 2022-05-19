@@ -27,7 +27,7 @@
 
 [[constraint]]
   name = "github.com/kevinburke/bigtext"
-  version = "0.2.0"
+  version = "0.3"
 
 [[constraint]]
   name = "github.com/kevinburke/go-git"
