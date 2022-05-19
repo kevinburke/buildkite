@@ -18,7 +18,7 @@ import (
 )
 
 // The buildkite-go version. Run "make release" to bump this number.
-const Version = "0.5"
+const Version = "0.6"
 const userAgent = "buildkite-go/" + Version
 
 const APIVersion = "v2"
