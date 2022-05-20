@@ -82,12 +82,12 @@ branch to wait for.
 		waitflags.PrintDefaults()
 	}
 	flag.Parse()
-	args := flag.Args()
-	if len(args) < 1 {
+	mainArgs := flag.Args()
+	if len(mainArgs) < 1 {
 		usage()
 		os.Exit(2)
 	}
-	subargs := args[1:]
+	subargs := mainArgs[1:]
 	if flag.Arg(0) == "version" {
 		fmt.Fprintf(os.Stdout, "buildkite version %s\n", Version)
 		os.Exit(0)
@@ -115,6 +115,7 @@ branch to wait for.
 		checkError(err, "waiting for branch")
 	case "open":
 		openflags.Parse(subargs)
+		args := openflags.Args()
 		branch, err := getBranchFromArgs(args)
 		checkError(err, "getting git branch")
 		checkError(doOpen(ctx, openflags, client, org, remote, branch), "opening build")

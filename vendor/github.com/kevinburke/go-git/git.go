@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-const version = "0.9"
+const version = "0.10"
 
 type GitFormat int
 
@@ -192,7 +192,7 @@ func Tip(branch string) (string, error) {
 		if strings.Contains(string(result), "Needed a single revision") {
 			return "", fmt.Errorf("git: Branch %s is unknown, can't get tip", branch)
 		}
-		return "", err
+		return "", fmt.Errorf("error getting tip for branch %q: %v (message %s)", branch, err, string(result))
 	}
 	return strings.TrimSpace(string(result)), nil
 }

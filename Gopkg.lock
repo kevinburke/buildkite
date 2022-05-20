@@ -45,12 +45,12 @@
   version = "0.3"
 
 [[projects]]
-  digest = "1:f66a1f5b2c164e02df49acb8d49ead69f8df167549291156789cbb712c068d01"
+  digest = "1:5fb5fc987003c224a7d9770732de6e5b86afe4619e5e88f74ec23cd953f27525"
   name = "github.com/kevinburke/go-git"
   packages = ["."]
   pruneopts = "UT"
-  revision = "85078ba2c9a2902d300e722408c07a6b247170ed"
-  version = "0.9"
+  revision = "9c1360549bacf77f58e6be364a36b38c4ad40115"
+  version = "0.10"
 
 [[projects]]
   digest = "1:413b8a48a1cb840a1cc144a1f9935f193e362608cd8f9464b6ebfd7d5ca68a0d"
