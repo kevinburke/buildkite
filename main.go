@@ -46,8 +46,6 @@ The commands are:
 Use "buildkite help [command]" for more information about a command.
 `
 
-const Version = "0.1"
-
 func usage() {
 	fmt.Fprintf(os.Stderr, help)
 	flag.PrintDefaults()
@@ -89,7 +87,7 @@ branch to wait for.
 	}
 	subargs := mainArgs[1:]
 	if flag.Arg(0) == "version" {
-		fmt.Fprintf(os.Stdout, "buildkite version %s\n", Version)
+		fmt.Fprintf(os.Stdout, "buildkite version %s\n", buildkite.Version)
 		os.Exit(0)
 	}
 	cfg, err := buildkite.LoadConfig(ctx)
