@@ -6,8 +6,13 @@ passed or failed.
 
 ### Installation
 
-In the future we may offer compiled binaries, for now the best way is to
-download the source:
+On Mac, install with Homebrew:
+
+```
+brew install kevinburke/safe/buildkite
+```
+
+Or install from source:
 
 ```
 go install github.com/kevinburke/buildkite@latest
