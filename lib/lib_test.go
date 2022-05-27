@@ -44,4 +44,6 @@ func TestCommandRe(t *testing.T) {
 			t.Errorf("MatchString(%q): got %t, want %t", tt.in, got, tt.want)
 		}
 	}
+
+	t.Error("The build failed")
 }
