@@ -16,7 +16,7 @@ import (
 )
 
 // The buildkite-go version. Run "make release" to bump this number.
-const Version = "0.8"
+const Version = "0.9"
 
 type BuildState string
 
