@@ -2,105 +2,21 @@ package lib
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/kevinburke/go-types"
-	"github.com/kevinburke/rest/restclient"
-	"github.com/kevinburke/rest/resterror"
 )
 
 // The buildkite-go version. Run "make release" to bump this number.
 const Version = "0.8"
-const userAgent = "buildkite-go/" + Version
-
-const APIVersion = "v2"
-
-type Client struct {
-	*restclient.Client
-	APIVersion string
-}
-
-// GetResource retrieves an instance resource with the given path part (e.g.
-// "/Messages") and sid (e.g. "MM123").
-func (c *Client) GetResource(ctx context.Context, pathPart string, sid string, v interface{}) error {
-	sidPart := strings.Join([]string{pathPart, sid}, "/")
-	return c.MakeRequest(ctx, "GET", sidPart, nil, v)
-}
-
-// CreateResource makes a POST request to the given resource.
-func (c *Client) CreateResource(ctx context.Context, pathPart string, data url.Values, v interface{}) error {
-	return c.MakeRequest(ctx, "POST", pathPart, data, v)
-}
-
-func (c *Client) UpdateResource(ctx context.Context, pathPart string, sid string, data url.Values, v interface{}) error {
-	sidPart := strings.Join([]string{pathPart, sid}, "/")
-	return c.MakeRequest(ctx, "POST", sidPart, data, v)
-}
-
-func (c *Client) DeleteResource(ctx context.Context, pathPart string, sid string) error {
-	sidPart := strings.Join([]string{pathPart, sid}, "/")
-	err := c.MakeRequest(ctx, "DELETE", sidPart, nil, nil)
-	if err == nil {
-		return nil
-	}
-	rerr, ok := err.(*resterror.Error)
-	if ok && rerr.Status == http.StatusNotFound {
-		return nil
-	}
-	return err
-}
-
-func (c *Client) MakeRequest(ctx context.Context, method string, pathPart string, data url.Values, v interface{}) error {
-	rb := new(strings.Reader)
-	if data != nil && (method == "POST" || method == "PUT") {
-		rb = strings.NewReader(data.Encode())
-	}
-	if method == "GET" && data != nil {
-		pathPart = pathPart + "?" + data.Encode()
-	}
-	req, err := c.NewRequest(method, "/"+APIVersion+pathPart, rb)
-	if err != nil {
-		return err
-	}
-	req = req.WithContext(ctx)
-	if ua := req.Header.Get("User-Agent"); ua == "" {
-		req.Header.Set("User-Agent", userAgent)
-	} else {
-		req.Header.Set("User-Agent", userAgent+" "+ua)
-	}
-	return c.Do(req, &v)
-}
-
-func (c *Client) ListResource(ctx context.Context, pathPart string, data url.Values, v interface{}) error {
-	return c.MakeRequest(ctx, "GET", pathPart, data, v)
-}
-
-type OrganizationService struct {
-	client *Client
-	org    string
-}
-
-type PipelineService struct {
-	client   *Client
-	org      string
-	pipeline string
-}
-
-func (o *OrganizationService) Pipeline(pipeline string) *PipelineService {
-	return &PipelineService{
-		client:   o.client,
-		org:      o.org,
-		pipeline: pipeline,
-	}
-}
 
 type BuildState string
 
@@ -111,15 +27,27 @@ type Build struct {
 	Commit      string         `json:"commit"`
 	Message     string         `json:"message"`
 	WebURL      string         `json:"web_url"`
-	LogURL      string         `json:"log_url"`
 	CreatedAt   time.Time      `json:"created_at"`
 	StartedAt   time.Time      `json:"started_at"`
 	ScheduledAt types.NullTime `json:"scheduled_at"`
 	FinishedAt  types.NullTime `json:"finished_at"`
 	Jobs        []Job          `json:"jobs"`
+	Pipeline    Pipeline       `json:"pipeline"`
+}
+
+type Pipeline struct {
+	ID                   string    `json:"id"`
+	Name                 string    `json:"name"`
+	Slug                 string    `json:"slug"`
+	CreatedAt            time.Time `json:"created_at"`
+	RunningBuildsCount   int       `json:"running_builds_count"`
+	ScheduledBuildsCount int       `json:"scheduled_builds_count"`
+	RunningJobsCount     int       `json:"running_jobs_count"`
+	WaitingJobsCount     int       `json:"waiting_jobs_count"`
 }
 
 type Job struct {
+	ID          string         `json:"id"`
 	Name        string         `json:"name"`
 	Command     string         `json:"command"`
 	State       JobState       `json:"state"`
@@ -127,6 +55,13 @@ type Job struct {
 	StartedAt   time.Time      `json:"started_at"`
 	ScheduledAt types.NullTime `json:"scheduled_at"`
 	FinishedAt  types.NullTime `json:"finished_at"`
+	LogURL      string         `json:"log_url"`
+}
+
+type Log struct {
+	Size    int64  `json:"size"`
+	URL     string `json:"url"`
+	Content string `json:"content"`
 }
 
 func (j Job) Failed() bool {
@@ -141,23 +76,6 @@ func (b Build) Empty() bool {
 }
 
 type ListBuildResponse []Build
-
-func (p *PipelineService) ListBuilds(ctx context.Context, query url.Values) (ListBuildResponse, error) {
-	path := "/organizations/" + p.org + "/pipelines/" + p.pipeline + "/builds"
-	var val ListBuildResponse
-	err := p.client.ListResource(ctx, path, query, &val)
-	return val, err
-}
-
-func (c *Client) Organization(org string) *OrganizationService {
-	return &OrganizationService{client: c, org: org}
-}
-
-const Host = "https://api.buildkite.com"
-
-func getHost() string {
-	return Host
-}
 
 type Organization struct {
 	// This is the map key, so it needs to be explicitly set.
@@ -317,11 +235,39 @@ func GetToken(ctx context.Context, org string) (string, error) {
 	return cfg.Token(org)
 }
 
-func NewClient(token string) *Client {
-	host := getHost()
-	if host == "" {
-		host = Host
+var postCommandHookRe = regexp.MustCompile(`~~~ Running (global|local|plugin) post-command hook`)
+var runCommandRe = regexp.MustCompile(`~~~ Running (global command|local command|plugin command|command|commands|script|batch script)\b`)
+
+// FindBuildFailure will attempt to find the most "interesting" part of the log,
+// based on heuristics. At most numOutputLines will be displayed.
+func FindBuildFailure(log []byte, numOutputLines int) []byte {
+	// We want to find the "end" of the "Running script" section, which can
+	// contain an unknown number of tilde headers inside. I _believe_ the first
+	// bit after this is the "Running global post-command hook" stanza. So we
+	// seek to that and then read backwards.
+	idxMatch := postCommandHookRe.FindIndex(log)
+	if idxMatch == nil {
+		newlineIdx := 0
+		for count := 0; count < numOutputLines; count++ {
+			newlineIdx = newlineIdx + 1 + bytes.IndexByte(log[newlineIdx+1:], '\n')
+			if newlineIdx == -1 {
+				return log
+			}
+		}
+		return log[:newlineIdx]
 	}
-	rc := restclient.NewBearerClient(token, host)
-	return &Client{Client: rc}
+	idx := idxMatch[0]
+	// find the last N lines; stop when we get to "~~~ Running script"
+	newlineIdx := idx
+	for count := 0; count < numOutputLines; count++ {
+		newIdx := bytes.LastIndexByte(log[:newlineIdx], '\n')
+		if newIdx == -1 {
+			return log[:idx]
+		}
+		if runCommandRe.Match(log[newIdx+1 : newlineIdx]) {
+			break
+		}
+		newlineIdx = newIdx
+	}
+	return log[newlineIdx:idx]
 }

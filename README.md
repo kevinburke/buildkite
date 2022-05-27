@@ -4,6 +4,9 @@ This is a Buildkite client that's designed to be used with Buildkite builds. It
 will wait for the current Git commit to build and then tell you whether it
 passed or failed.
 
+If the build failed, we'll download the output from the failed job step and
+display what happened in the terminal.
+
 ### Installation
 
 On Mac, install with Homebrew:
@@ -31,7 +34,6 @@ brew install terminal-notifier
 
 Implement the features from e.g. github.com/kevinburke/go-circle, for example:
 
-- Download and display build logs for failed build steps
 - download build artifacts
 - cancel or rebuild builds on a given branch
 
