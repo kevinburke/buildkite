@@ -13,7 +13,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -23,12 +22,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/juju/ansiterm/tabwriter"
 	"github.com/kevinburke/bigtext"
 	buildkite "github.com/kevinburke/buildkite/lib"
 	git "github.com/kevinburke/go-git"
 	"github.com/pkg/browser"
-	"golang.org/x/term"
 )
 
 const help = `The buildkite binary interacts with Buildkite CI.
@@ -261,53 +258,6 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 	}
 }
 
-func buildSummary(build buildkite.Build) []byte {
-	var buf bytes.Buffer
-	buf.Write([]byte{'\n'}) // the end of the '=' line
-	writer := tabwriter.NewWriter(&buf, 0, 0, 1, ' ', 0)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	_ = ctx
-	defer cancel()
-	/*
-		build, err := client.Builds.Get(ctx, latestBuild.ID, "build.jobs", "job.config")
-		if err == nil {
-			stats, err := client.BuildSummary(ctx, build)
-			if err == nil {
-				fmt.Print(stats)
-			} else {
-				fmt.Printf("error fetching build summary: %v\n", err)
-			}
-		} else {
-			fmt.Printf("error getting build: %v\n", err)
-		}
-	*/
-	for i := range build.Jobs {
-		duration := build.Jobs[i].FinishedAt.Time.Sub(build.Jobs[i].StartedAt)
-		if duration > time.Minute {
-			duration = duration.Round(time.Second)
-		} else {
-			duration = duration.Round(10 * time.Millisecond)
-		}
-		var durString string
-		if build.Jobs[i].Failed() && isatty() {
-			durString = fmt.Sprintf("\033[38;05;160m%-8s\033[0m", duration.String())
-		} else {
-			durString = duration.String()
-		}
-		fmt.Fprintf(writer, "%s\t%s\n", build.Jobs[i].Name, durString)
-	}
-	writer.Flush()
-	linelen := bytes.IndexByte(buf.Bytes()[1:], '\n')
-	var buf2 bytes.Buffer
-	buf2.WriteByte('\n')
-	buf2.Write(bytes.Repeat([]byte{'='}, linelen))
-	return append(buf.Bytes(), buf2.Bytes()...)
-}
-
-func isatty() bool {
-	return term.IsTerminal(int(os.Stdout.Fd()))
-}
-
 func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string) error {
 	tip, err := git.Tip(branch)
 	if err != nil {
@@ -359,13 +309,13 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 		}
 		switch latestBuild.State {
 		case "passed":
-			data := buildSummary(latestBuild)
+			data := client.BuildSummary(ctx, org.Name, latestBuild)
 			os.Stdout.Write(data)
 			fmt.Printf("\nTests on %s took %s. Quitting.\n", branch, duration.String())
 			c.Display(branch + " build complete!")
 			return nil
 		case "failed":
-			data := buildSummary(latestBuild)
+			data := client.BuildSummary(ctx, org.Name, latestBuild)
 			os.Stdout.Write(data)
 			/*
 				build, err := getBuild(client, latestBuild.ID)
