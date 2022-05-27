@@ -44,7 +44,7 @@ Use "buildkite help [command]" for more information about a command.
 `
 
 func usage() {
-	fmt.Fprintf(os.Stderr, help)
+	fmt.Fprint(os.Stderr, help)
 	flag.PrintDefaults()
 }
 
@@ -156,10 +156,6 @@ func getLatestBuild(ctx context.Context, client *buildkite.Client, org, repo, br
 	return builds[0], nil
 }
 
-var orgMap = map[string]string{
-	"segmentio": "segment",
-}
-
 // isHttpError checks if the given error is a request timeout or a network
 // failure - in those cases we want to just retry the request.
 func isHttpError(err error) bool {
@@ -179,23 +175,11 @@ func isHttpError(err error) bool {
 		return true
 	// Catchall, this needs to go last.
 	case net.Error:
-		return err.Timeout() || err.Temporary()
+		return err.Timeout()
 	}
 }
 
 var errNoBuilds = errors.New("buildkite: no builds")
-
-// getMinTipLength compares two strings and returns the length of the
-// shortest
-func getMinTipLength(remoteTip string, localTip string) int {
-	var minTipLength int
-	if len(remoteTip) <= len(localTip) {
-		minTipLength = len(remoteTip)
-	} else {
-		minTipLength = len(localTip)
-	}
-	return minTipLength
-}
 
 func shouldPrint(lastPrinted time.Time, duration time.Duration, latestBuild buildkite.Build, previousBuild *buildkite.Build) bool {
 	now := time.Now()

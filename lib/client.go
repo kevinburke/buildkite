@@ -194,8 +194,7 @@ func (c *Client) BuildSummary(ctx context.Context, org string, build Build) []by
 	var buf bytes.Buffer
 	buf.Write([]byte{'\n'}) // the end of the '=' line
 	writer := tabwriter.NewWriter(&buf, 0, 0, 1, ' ', 0)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	_ = ctx
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	/*
 		build, err := client.Builds.Get(ctx, latestBuild.ID, "build.jobs", "job.config")

@@ -89,7 +89,7 @@ type Organization struct {
 // insensitive match, so if key is "ExaMple" and orgs has a key named "eXAMPLE",
 // that will count as a match.
 func getCaseInsensitiveOrg(key string, orgs map[string]Organization) (Organization, bool) {
-	for k, _ := range orgs {
+	for k := range orgs {
 		lower := strings.ToLower(k)
 		if _, ok := orgs[lower]; !ok {
 			orgs[lower] = orgs[k]
@@ -133,10 +133,16 @@ func LoadConfig(ctx context.Context) (*FileConfig, error) {
 		}
 		filename = filepath.Join(homeDir, "cfg", "buildkite")
 		f, err = os.Open(filename)
+		if err != nil {
+			return nil, err
+		}
 		checkedLocations[0] = filename
 		if err != nil { // fallback
 			rcFilename := filepath.Join(homeDir, ".buildkite")
 			f, err = os.Open(rcFilename)
+			if err != nil {
+				return nil, err
+			}
 			checkedLocations = append(checkedLocations, rcFilename)
 		}
 	}
@@ -160,7 +166,7 @@ Go to https://buildkite.com/user/api-access-tokens if you need to find your toke
 	}
 	defer f.Close()
 	var c FileConfig
-	if _, err := toml.DecodeReader(bufio.NewReader(f), &c); err != nil {
+	if _, err := toml.NewDecoder(bufio.NewReader(f)).Decode(&c); err != nil {
 		return nil, err
 	}
 	// set the name explicitly
