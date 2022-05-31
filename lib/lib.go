@@ -253,12 +253,15 @@ func FindBuildFailure(log []byte, numOutputLines int) []byte {
 	// seek to that and then read backwards.
 	idxMatch := postCommandHookRe.FindIndex(log)
 	if idxMatch == nil {
+		// Count forwards from the start, and just include that many lines
 		newlineIdx := 0
 		for count := 0; count < numOutputLines; count++ {
-			newlineIdx = newlineIdx + 1 + bytes.IndexByte(log[newlineIdx+1:], '\n')
+			// if runCommandRe.Match(log[newIdx+1 : newlineIdx]) {
+			newIdx := newlineIdx + 1 + bytes.IndexByte(log[newlineIdx+1:], '\n')
 			if newlineIdx == -1 {
 				return log
 			}
+			_ = newIdx
 		}
 		return log[:newlineIdx]
 	}

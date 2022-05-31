@@ -27,6 +27,8 @@ var commandTests = []struct {
 	want bool
 }{
 	{"~~~ Running command", true},
+	{"~~~ Running commands\r\n", true},
+	{"~~~ Running commands another word\r\n", true},
 	{"~~~ Running commandsblah", false},
 	{"~~~ Running script", true},
 	{"~~~ Running batch script", true},
