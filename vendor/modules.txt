@@ -1,0 +1,37 @@
+# github.com/BurntSushi/toml v1.1.0
+## explicit; go 1.16
+github.com/BurntSushi/toml
+github.com/BurntSushi/toml/internal
+# github.com/andybrewer/mack v0.0.0-20220307193339-22e922cc18af
+## explicit; go 1.17
+github.com/andybrewer/mack
+# github.com/gofrs/uuid v4.2.0+incompatible
+## explicit
+github.com/gofrs/uuid
+# github.com/google/go-cmp v0.5.8
+## explicit; go 1.13
+# github.com/kevinburke/bigtext v0.0.0-20220519224329-c26d116ded71
+## explicit
+github.com/kevinburke/bigtext
+# github.com/kevinburke/go-git v0.0.0-20220520045906-9c1360549bac
+## explicit
+github.com/kevinburke/go-git
+# github.com/kevinburke/go-types v0.0.0-20210723172823-2deba1f80ba7
+## explicit
+github.com/kevinburke/go-types
+# github.com/kevinburke/rest v0.0.0-20210425173428-1fcb8c8e9022
+## explicit
+github.com/kevinburke/rest/restclient
+github.com/kevinburke/rest/resterror
+# github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8
+## explicit; go 1.14
+github.com/pkg/browser
+# golang.org/x/sys v0.0.0-20220513210249-45d2b4557a2a
+## explicit; go 1.17
+golang.org/x/sys/internal/unsafeheader
+golang.org/x/sys/plan9
+golang.org/x/sys/unix
+golang.org/x/sys/windows
+# golang.org/x/term v0.0.0-20220411215600-e5f449aeb171
+## explicit; go 1.17
+golang.org/x/term

@@ -7,5 +7,3 @@ steps:
 - label: test
   commands: |
     cd "\$WORKING_DIRECTORY" && make test
-  env:
-    GO111MODULE: 'off'
