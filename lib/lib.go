@@ -127,22 +127,17 @@ func LoadConfig(ctx context.Context) (*FileConfig, error) {
 		f, err = os.Open(filename)
 		checkedLocations[0] = filename
 	} else {
-		homeDir, err := os.UserHomeDir()
+		var homeDir string
+		homeDir, err = os.UserHomeDir()
 		if err != nil {
 			return nil, err
 		}
 		filename = filepath.Join(homeDir, "cfg", "buildkite")
 		f, err = os.Open(filename)
-		if err != nil {
-			return nil, err
-		}
 		checkedLocations[0] = filename
 		if err != nil { // fallback
 			rcFilename := filepath.Join(homeDir, ".buildkite")
 			f, err = os.Open(rcFilename)
-			if err != nil {
-				return nil, err
-			}
 			checkedLocations = append(checkedLocations, rcFilename)
 		}
 	}
@@ -158,7 +153,7 @@ Add a configuration file with your Buildkite token, like this:
 
     [organizations.buildkite_org]
     token = "aabbccddeeff00"
-    git_remote = "github_org"
+    git_remotes = [ "github_org" ]
 
 Go to https://buildkite.com/user/api-access-tokens if you need to find your token.
 `, strings.Join(checkedLocations, " or "))
