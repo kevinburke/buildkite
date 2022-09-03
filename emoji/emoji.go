@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	appleEmojiMapping     = `https://github.com/buildkite/emojis/raw/master/img-apple-64.json`
-	buildkiteEmojiMapping = `https://github.com/buildkite/emojis/raw/master/img-buildkite-64.json`
-	emojiCachePrefix      = `https://github.com/buildkite/emojis/raw/master/`
+	appleEmojiMapping     = `https://github.com/buildkite/emojis/raw/main/img-apple-64.json`
+	buildkiteEmojiMapping = `https://github.com/buildkite/emojis/raw/main/img-buildkite-64.json`
+	emojiCachePrefix      = `https://github.com/buildkite/emojis/raw/main/`
 )
 
 var emojiRegexp = regexp.MustCompile(`:\w+:`)
@@ -109,6 +109,7 @@ func (e *emojiCache) httpGetJSON(u string, into interface{}) error {
 }
 
 func (e *emojiCache) httpGet(u string) ([]byte, error) {
+	fmt.Println("http get", u)
 	if !strings.HasPrefix(u, emojiCachePrefix) {
 		return nil, fmt.Errorf("Url doesn't start with %s", emojiCachePrefix)
 	}
@@ -160,7 +161,7 @@ func (e buildkiteEmoji) Render(cache *emojiCache) string {
 		return defaultReturn
 	}
 
-	return renderITerm2Image(img)
+	return renderITerm2Image(e.Name, img)
 }
 
 type buildkiteEmojis []buildkiteEmoji
@@ -234,15 +235,17 @@ func (ae appleEmojis) Match(name string) (appleEmoji, bool) {
 	return appleEmoji{}, false
 }
 
-func renderITerm2Image(data []byte) string {
+func renderITerm2Image(name string, data []byte) string {
 	var b strings.Builder
 
+	// https://iterm2.com/documentation-images.html
 	b.WriteString("\033]1337;")
 	b.WriteString("File=inline=1")
 	b.WriteString(";height=1")
+	b.WriteString(";preserveAspectRatio=1")
 	b.WriteString(":")
 	b.WriteString(base64.StdEncoding.EncodeToString(data))
-	b.WriteString("\a\b")
+	b.WriteString("\a ")
 
 	return b.String()
 }
