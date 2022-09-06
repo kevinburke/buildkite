@@ -37,6 +37,8 @@ Implement the features from e.g. github.com/kevinburke/go-circle, for example:
 - download build artifacts
 - cancel or rebuild builds on a given branch
 
+Also add emoji support, so we can render emoji in iTerm in full fidelity.
+
 ### Configuration
 
 You need to add a local config file. Get a API token from
