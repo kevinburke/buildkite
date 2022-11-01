@@ -269,7 +269,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			}
 			if err == errNoBuilds {
 				return fmt.Errorf("No results, are you sure there are tests for %s/%s?\n",
-					org, remote.RepoName)
+					org.Name, remote.RepoName)
 			}
 			return err
 		}
