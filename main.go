@@ -66,6 +66,7 @@ func main() {
 	waitflags := flag.NewFlagSet("wait", flag.ExitOnError)
 	openflags := flag.NewFlagSet("open", flag.ExitOnError)
 	waitRemote := waitflags.String("remote", "origin", "Git remote to use")
+	waitOutputLines := waitflags.Int("failed-output-lines", 100, "Number of lines of failed output to display")
 	waitflags.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: wait [refspec]
 
@@ -106,7 +107,7 @@ branch to wait for.
 		args := waitflags.Args()
 		branch, err := getBranchFromArgs(args)
 		checkError(err, "getting git branch")
-		err = doWait(ctx, client, org, remote, branch)
+		err = doWait(ctx, client, org, remote, branch, *waitOutputLines)
 		checkError(err, "waiting for branch")
 	case "open":
 		openflags.Parse(subargs)
@@ -240,7 +241,7 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 	}
 }
 
-func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string) error {
+func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string, numOutputLines int) error {
 	tip, err := git.Tip(branch)
 	if err != nil {
 		return err
@@ -291,13 +292,13 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 		}
 		switch latestBuild.State {
 		case "passed":
-			data := client.BuildSummary(ctx, org.Name, latestBuild)
+			data := client.BuildSummary(ctx, org.Name, latestBuild, numOutputLines)
 			os.Stdout.Write(data)
 			fmt.Printf("\nTests on %s took %s. Quitting.\n", branch, duration.String())
 			c.Display(branch + " build complete!")
 			return nil
 		case "failed":
-			data := client.BuildSummary(ctx, org.Name, latestBuild)
+			data := client.BuildSummary(ctx, org.Name, latestBuild, numOutputLines)
 			os.Stdout.Write(data)
 			/*
 				build, err := getBuild(client, latestBuild.ID)

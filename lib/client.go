@@ -190,7 +190,7 @@ func isatty() bool {
 	return term.IsTerminal(int(os.Stdout.Fd()))
 }
 
-func (c *Client) BuildSummary(ctx context.Context, org string, build Build) []byte {
+func (c *Client) BuildSummary(ctx context.Context, org string, build Build, numOutputLines int) []byte {
 	var buf bytes.Buffer
 	buf.Write([]byte{'\n'}) // the end of the '=' line
 	writer := tabwriter.NewWriter(&buf, 0, 0, 1, ' ', 0)
@@ -227,7 +227,7 @@ func (c *Client) BuildSummary(ctx context.Context, org string, build Build) []by
 			logs, err := c.Organization(org).Pipeline(build.Pipeline.Slug).Build(build.Number).Job(build.Jobs[i].ID).RawLog(ctx)
 			if err == nil {
 				// TODO: configure based on window?
-				failure = FindBuildFailure(logs, 100)
+				failure = FindBuildFailure(logs, numOutputLines)
 			}
 		}
 		fmt.Fprintf(writer, "%s\t%s\n", build.Jobs[i].Name, durString)
@@ -238,7 +238,7 @@ func (c *Client) BuildSummary(ctx context.Context, org string, build Build) []by
 	buf2.WriteByte('\n')
 	buf2.Write(bytes.Repeat([]byte{'='}, linelen))
 	if len(failure) > 0 {
-		buf2.WriteString("\nLast 100 lines of failed build output:\n\n")
+		fmt.Fprintf(&buf2, "\nLast %d lines of failed build output:\n\n", numOutputLines)
 		buf2.Write(failure)
 	}
 	return append(buf.Bytes(), buf2.Bytes()...)
