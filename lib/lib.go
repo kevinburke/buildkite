@@ -120,13 +120,14 @@ func LoadConfig(ctx context.Context) (*FileConfig, error) {
 	var filename string
 	var f *os.File
 	var err error
-	checkedLocations := make([]string, 1)
+	checkedLocations := make([]string, 0)
 	deadline, deadlineOk := ctx.Deadline()
 	if cfg, ok := os.LookupEnv("XDG_CONFIG_HOME"); ok {
 		filename = filepath.Join(cfg, "buildkite")
 		f, err = os.Open(filename)
-		checkedLocations[0] = filename
-	} else {
+		checkedLocations = append(checkedLocations, filename)
+	}
+	if err != nil {
 		var homeDir string
 		homeDir, err = os.UserHomeDir()
 		if err != nil {
@@ -134,7 +135,7 @@ func LoadConfig(ctx context.Context) (*FileConfig, error) {
 		}
 		filename = filepath.Join(homeDir, "cfg", "buildkite")
 		f, err = os.Open(filename)
-		checkedLocations[0] = filename
+		checkedLocations = append(checkedLocations, filename)
 		if err != nil { // fallback
 			rcFilename := filepath.Join(homeDir, ".buildkite")
 			f, err = os.Open(rcFilename)
