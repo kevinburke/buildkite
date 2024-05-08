@@ -297,7 +297,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			fmt.Printf("\nTests on %s took %s. Quitting.\n", branch, duration.String())
 			c.Display(branch + " build complete!")
 			return nil
-		case "failed":
+		case "failing", "failed":
 			data := client.BuildSummary(ctx, org.Name, latestBuild, numOutputLines)
 			os.Stdout.Write(data)
 			/*
@@ -315,7 +315,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 					fmt.Printf("error getting build: %v\n", err)
 				}
 			*/
-			fmt.Printf("\nURL: %s\n", latestBuild.WebURL)
+			fmt.Printf("\nURL:\n%s\n", latestBuild.WebURL)
 			err = fmt.Errorf("Build on %s failed!\n\n", branch)
 			c.Display("build failed")
 			return err
@@ -327,6 +327,11 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 				lastPrintedAt = time.Now()
 			}
 		default:
+			/*
+				if latestBuild.State == "failing" {
+					fmt.Printf("latest build: %#v\n", latestBuild)
+				}
+			*/
 			fmt.Printf("State is %s, trying again\n", latestBuild.State)
 			lastPrintedAt = time.Now()
 		}
