@@ -157,6 +157,12 @@ func getLatestBuild(ctx context.Context, client *buildkite.Client, org, repo, br
 	return builds[0], nil
 }
 
+func getAnnotations(ctx context.Context, client *buildkite.Client, org, repo string, build int64) (buildkite.AnnotationResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	return client.Organization(org).Pipeline(repo).Build(build).Annotations(ctx, nil)
+}
+
 // isHttpError checks if the given error is a request timeout or a network
 // failure - in those cases we want to just retry the request.
 func isHttpError(err error) bool {
@@ -183,6 +189,7 @@ func isHttpError(err error) bool {
 var errNoBuilds = errors.New("buildkite: no builds")
 
 func shouldPrint(lastPrinted time.Time, duration time.Duration, latestBuild buildkite.Build, previousBuild *buildkite.Build) bool {
+	_ = latestBuild
 	now := time.Now()
 	var buildDuration time.Duration
 	if previousBuild == nil {
@@ -210,6 +217,7 @@ func shouldPrint(lastPrinted time.Time, duration time.Duration, latestBuild buil
 }
 
 func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string) error {
+	_ = flags
 	tip, err := git.Tip(branch)
 	if err != nil {
 		return err
@@ -265,7 +273,11 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			if isHttpError(err) {
 				fmt.Printf("Caught network error: %s. Continuing\n", err.Error())
 				lastPrintedAt = time.Now()
-				time.Sleep(2 * time.Second)
+				select {
+				case <-ctx.Done():
+					return err
+				case <-time.After(2 * time.Second):
+				}
 				continue
 			}
 			if err == errNoBuilds {
@@ -278,7 +290,11 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			fmt.Printf("Latest build in Buildkite is %s, waiting for %s...\n",
 				latestBuild.Commit, tip)
 			lastPrintedAt = time.Now()
-			time.Sleep(5 * time.Second)
+			select {
+			case <-ctx.Done():
+				return err
+			case <-time.After(5 * time.Second):
+			}
 			continue
 		}
 		var duration time.Duration
@@ -292,9 +308,27 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 		}
 		switch latestBuild.State {
 		case "passed":
+			// TODO
+			var annotationANSI []string
+			annotations, err := getAnnotations(ctx, client, org.Name, remote.RepoName, latestBuild.Number)
+			if err == nil {
+				annotationANSI, _ = getANSIAnnotations(annotations)
+			}
 			data := client.BuildSummary(ctx, org.Name, latestBuild, numOutputLines)
 			os.Stdout.Write(data)
-			fmt.Printf("\nTests on %s took %s. Quitting.\n", branch, duration.String())
+			output := fmt.Sprintf("\nTests on %s took %s. Quitting.\n", branch, duration.String())
+			if latestBuild.PullRequest != nil {
+				// No prefix for the URL so you can click and copy the whole
+				// line easily
+				output += latestBuild.PullRequest.URL() + "\n"
+			}
+			if len(annotationANSI) > 0 {
+				output += "\nAnnotations:\n"
+				for _, annotation := range annotationANSI {
+					output += annotation + "\n"
+				}
+			}
+			fmt.Print(output)
 			c.Display(branch + " build complete!")
 			return nil
 		case "failing", "failed":

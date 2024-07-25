@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -33,6 +34,21 @@ type Build struct {
 	FinishedAt  types.NullTime `json:"finished_at"`
 	Jobs        []Job          `json:"jobs"`
 	Pipeline    Pipeline       `json:"pipeline"`
+	PullRequest *PullRequest   `json:"pull_request"`
+}
+
+type PullRequest struct {
+	ID         string `json:"id"`
+	Base       string `json:"base"`
+	Repository string `json:"repository"`
+}
+
+func (p PullRequest) URL() string {
+	u, err := url.Parse(p.Repository)
+	if err != nil {
+		return "%!ERROR"
+	}
+	return fmt.Sprintf("%s://%s%s/pull/%s", u.Scheme, u.Host, strings.TrimSuffix(u.Path, ".git"), p.ID)
 }
 
 type Pipeline struct {
@@ -76,6 +92,16 @@ func (b Build) Empty() bool {
 }
 
 type ListBuildResponse []Build
+
+type Annotation struct {
+	ID        string    `json:"id"`
+	Context   string    `json:"context"`
+	BodyHTML  string    `json:"body_html"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type AnnotationResponse []Annotation
 
 type Organization struct {
 	// This is the map key, so it needs to be explicitly set.

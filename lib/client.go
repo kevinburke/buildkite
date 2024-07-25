@@ -149,6 +149,18 @@ func (b *BuildService) Job(id string) *JobService {
 	}
 }
 
+func (b *BuildService) Path() string {
+	return fmt.Sprintf("/organizations/%s/pipelines/%s/builds/%d",
+		b.org, b.pipeline, b.number)
+}
+
+func (b *BuildService) Annotations(ctx context.Context, query url.Values) (AnnotationResponse, error) {
+	path := b.Path() + "/annotations"
+	var val AnnotationResponse
+	err := b.client.ListResource(ctx, path, query, &val)
+	return val, err
+}
+
 func (j *JobService) Path() string {
 	return fmt.Sprintf("/organizations/%s/pipelines/%s/builds/%d/jobs/%s",
 		j.org, j.pipeline, j.buildNumber, j.jobID)
