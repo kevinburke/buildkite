@@ -45,3 +45,10 @@ func TestCommandRe(t *testing.T) {
 		}
 	}
 }
+
+func TestPullRequest(t *testing.T) {
+	p := PullRequest{ID: "421", Base: "main", Repository: "https://github.com/segmentio/integrations-consumer.git"}
+	if u := p.URL(); u != "https://github.com/segmentio/integrations-consumer/pull/421" {
+		t.Errorf("incorrect URL: got %q", u)
+	}
+}
