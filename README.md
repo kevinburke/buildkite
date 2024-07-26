@@ -63,15 +63,18 @@ default = "kevinburke"
 
     # "example" is the name of your Buildkite org, buildkite.com/example
     [organizations.example]
-    token = "token_for_example_org"
-    # If your Github org name does not match the Buildkite org name, add
-    # a mapping here - in this case the org is at github.com/example_gh
+    token = "buildkite_token_for_example_org"
+
+    # If your Github org name does not match the Buildkite org name, add a
+    # mapping here - in this case, let's say the Github org that maps to
+    # buildkite.com/example is at github.com/example_gh
     git_remotes = [
-        'example_gh' # github.com/example_gh => buildkite.com/example
+        'example_gh' # This will map github.com/example_gh => buildkite.com/example
     ]
 
+    # If you have more than one organization, you can add other orgs/tokens
     [organizations.kevinburke]
-    token = "token_for_kevinburke"
+    token = "buildkite_token_for_kevinburke"
 ```
 
 ### Usage
