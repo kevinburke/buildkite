@@ -1,2 +1,3 @@
+Dan <dlasky@users.noreply.github.com>
 Erik Weathers <eweathers@twilio.com>
 Kevin Burke <kevin@burke.dev>
