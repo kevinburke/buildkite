@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -143,52 +142,29 @@ type FileConfig struct {
 // - $HOME/cfg/buildkite
 // - $HOME/.buildkite
 func LoadConfig(ctx context.Context) (*FileConfig, error) {
+
 	var filename string
 	var f *os.File
 	var err error
-	checkedLocations := make([]string, 0)
-	deadline, deadlineOk := ctx.Deadline()
-	if cfg, ok := os.LookupEnv("XDG_CONFIG_HOME"); ok {
-		filename = filepath.Join(cfg, "buildkite")
-		f, err = os.Open(filename)
-		checkedLocations = append(checkedLocations, filename)
-	}
+
+	filename, err = getCfgPath()
+	fmt.Println(filename)
 	if err != nil {
-		var homeDir string
-		homeDir, err = os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		filename = filepath.Join(homeDir, "cfg", "buildkite")
-		f, err = os.Open(filename)
-		checkedLocations = append(checkedLocations, filename)
-		if err != nil { // fallback
-			rcFilename := filepath.Join(homeDir, ".buildkite")
-			f, err = os.Open(rcFilename)
-			checkedLocations = append(checkedLocations, rcFilename)
-		}
-	}
-	if err != nil {
-		//lint:ignore ST1005 this shows up in public facing error.
-		err = fmt.Errorf(`Couldn't find a config file in %s.
-
-Add a configuration file with your Buildkite token, like this:
-
-[organizations]
-
-    [organizations.buildkite_org]
-    token = "aabbccddeeff00"
-    git_remotes = [ "github_org" ]
-
-Go to https://buildkite.com/user/api-access-tokens if you need to find your token.
-`, strings.Join(checkedLocations, " or "))
 		return nil, err
 	}
+	f, err = os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	deadline, deadlineOk := ctx.Deadline()
+
 	if deadlineOk && f != nil {
 		f.SetDeadline(deadline)
 	}
 	defer f.Close()
 	var c FileConfig
+
 	if _, err := toml.NewDecoder(bufio.NewReader(f)).Decode(&c); err != nil {
 		return nil, err
 	}
