@@ -251,6 +251,9 @@ func FindBuildFailure(log []byte, numOutputLines int) []byte {
 	// contain an unknown number of tilde headers inside. I _believe_ the first
 	// bit after this is the "Running global post-command hook" stanza. So we
 	// seek to that and then read backwards.
+	if len(log) == 0 {
+		return log
+	}
 	idxMatch := postCommandHookRe.FindIndex(log)
 	if idxMatch == nil {
 		newlineIdx := 0
@@ -274,6 +277,9 @@ func FindBuildFailure(log []byte, numOutputLines int) []byte {
 			break
 		}
 		newlineIdx = newIdx
+	}
+	if newlineIdx > idx {
+		return log[:idx]
 	}
 	return log[newlineIdx:idx]
 }
