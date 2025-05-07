@@ -3,6 +3,7 @@ package lib
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,12 +22,36 @@ const userAgent = "buildkite-go/" + Version
 
 const APIVersion = "v2"
 
+type Error struct {
+	StatusCode int
+	Message    string
+}
+
+type buildkiteErrorResponse struct {
+	Message string `json:"message"`
+}
+
+func (b *Error) Error() string {
+	return b.Message
+}
+
 func NewClient(token string) *Client {
 	host := getHost()
 	if host == "" {
 		host = Host
 	}
 	rc := restclient.NewBearerClient(token, host)
+	rc.ErrorParser = func(r *http.Response) error {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			return fmt.Errorf("received HTTP error %d from Buildkite and could not read the response: %v", r.StatusCode, err)
+		}
+		resp := new(buildkiteErrorResponse)
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return fmt.Errorf("could not decode %d error response as a Buildkite error: %w", r.StatusCode, err)
+		}
+		return &Error{Message: resp.Message, StatusCode: r.StatusCode}
+	}
 	return &Client{Client: rc}
 }
 
@@ -106,6 +131,13 @@ func (o *OrganizationService) Pipeline(pipeline string) *PipelineService {
 		org:      o.org,
 		pipeline: pipeline,
 	}
+}
+
+func (o *OrganizationService) ListPipelines(ctx context.Context, data url.Values) ([]Pipeline, error) {
+	path := "/organizations/" + o.org + "/pipelines"
+	var val []Pipeline
+	err := o.client.ListResource(ctx, path, data, &val)
+	return val, err
 }
 
 type BuildService struct {

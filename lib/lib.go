@@ -59,6 +59,7 @@ type Pipeline struct {
 	ScheduledBuildsCount int       `json:"scheduled_builds_count"`
 	RunningJobsCount     int       `json:"running_jobs_count"`
 	WaitingJobsCount     int       `json:"waiting_jobs_count"`
+	Repository           string    `json:"repository"`
 }
 
 type Job struct {

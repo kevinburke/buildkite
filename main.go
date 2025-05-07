@@ -20,6 +20,8 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kevinburke/bigtext"
@@ -222,8 +224,23 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 	if err != nil {
 		return err
 	}
+	orgName, slug := org.Name, remote.RepoName
+	_, err = getLatestBuild(ctx, client, orgName, slug, branch)
+	if err != nil {
+		if berr, ok := err.(*buildkite.Error); ok && berr.StatusCode == 404 {
+			pipelineSlug, err := buildkite.FindPipelineSlug(ctx, client.Client, orgName, slug)
+			if err != nil {
+				return err
+			}
+			slug = pipelineSlug
+		} else {
+			fmt.Printf("latest build at top of doWait err: %v\n", err)
+			return err
+		}
+	}
+
 	for {
-		latestBuild, err := getLatestBuild(ctx, client, org.Name, remote.RepoName, branch)
+		latestBuild, err := getLatestBuild(ctx, client, orgName, slug, branch)
 		if err != nil {
 			if isHttpError(err) {
 				fmt.Printf("Caught network error: %s. Continuing\n", err.Error())
@@ -240,7 +257,11 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 		if latestBuild.Commit != tip {
 			fmt.Printf("Latest build in Buildkite is %s, waiting for %s...\n",
 				latestBuild.Commit, tip)
-			time.Sleep(5 * time.Second)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(5 * time.Second):
+			}
 			continue
 		}
 		if err := browser.OpenURL(latestBuild.WebURL); err != nil {
@@ -250,15 +271,72 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 	}
 }
 
+func normalizeRepo(u string) string {
+	u = strings.TrimSpace(u)
+	u = strings.TrimSuffix(u, ".git")
+	u = strings.TrimSuffix(u, "/")
+	// git@github.com:foo/bar -> github.com/foo/bar
+	if strings.HasPrefix(u, "git@") {
+		u = strings.TrimPrefix(u, "git@")
+		u = strings.Replace(u, ":", "/", 1)
+	}
+	for _, p := range []string{"https://", "http://", "ssh://"} {
+		u = strings.TrimPrefix(u, p)
+	}
+	return strings.ToLower(u)
+}
+
+func sameRepo(a, b string) bool {
+	return a == b || strings.HasSuffix(a, "/"+b) || strings.HasSuffix(b, "/"+a)
+}
+
+func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, slug string) (string, error) {
+	const perPage = 100
+	page := 1
+
+	for {
+		data := url.Values{}
+		data.Set("per_page", strconv.Itoa(perPage))
+		data.Set("page", strconv.Itoa(page))
+		pipelines, err := client.Organization(orgName).ListPipelines(ctx, data)
+		if err != nil {
+			return "", err
+		}
+		for _, p := range pipelines {
+			if sameRepo(slug, normalizeRepo(p.Repository)) {
+				return p.Slug, nil
+			}
+		}
+
+		// TODO: paging, and parsing the "Link" header.
+	}
+}
+
 func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string, numOutputLines int) error {
 	tip, err := git.Tip(branch)
 	if err != nil {
 		return err
 	}
+	orgName, slug := org.Name, remote.RepoName
+
+	_, err = getLatestBuild(ctx, client, orgName, slug, branch)
+	if err != nil {
+		if berr, ok := err.(*buildkite.Error); ok && berr.StatusCode == 404 {
+			pipelineSlug, err := findPipelineSlug(ctx, client, orgName, slug)
+			if err != nil {
+				return err
+			}
+			slug = pipelineSlug
+		} else {
+			fmt.Printf("latest build at top of doWait err: %v\n", err)
+			return err
+		}
+	}
+
 	fmt.Println("Waiting for latest build on", branch, "to complete")
 	var lastPrintedAt time.Time
 	var previousBuild *buildkite.Build
-	builds, err := getBuilds(ctx, client, org.Name, remote.RepoName, branch)
+	builds, err := getBuilds(ctx, client, orgName, slug, branch)
 	if err == nil {
 		for i := 1; i < len(builds); i++ {
 			if builds[i].State == "passed" {
@@ -269,7 +347,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 	}
 	done := false
 	for !done {
-		latestBuild, err := getLatestBuild(ctx, client, org.Name, remote.RepoName, branch)
+		latestBuild, err := getLatestBuild(ctx, client, orgName, slug, branch)
 		if err != nil {
 			if isHttpError(err) {
 				fmt.Printf("Caught network error: %s. Continuing\n", err.Error())
@@ -312,11 +390,11 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 		case "passed":
 			// TODO
 			var annotationANSI []string
-			annotations, err := getAnnotations(ctx, client, org.Name, remote.RepoName, latestBuild.Number)
+			annotations, err := getAnnotations(ctx, client, orgName, slug, latestBuild.Number)
 			if err == nil {
 				annotationANSI, _ = getANSIAnnotations(annotations)
 			}
-			data := client.BuildSummary(ctx, org.Name, latestBuild, numOutputLines)
+			data := client.BuildSummary(ctx, orgName, latestBuild, numOutputLines)
 			os.Stdout.Write(data)
 			output := fmt.Sprintf("\nTests on %s took %s. Quitting.\n", branch, duration.String())
 			if latestBuild.PullRequest != nil {
@@ -334,7 +412,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			c.Display(branch + " build complete!")
 			return nil
 		case "failing", "failed":
-			data := client.BuildSummary(ctx, org.Name, latestBuild, numOutputLines)
+			data := client.BuildSummary(ctx, orgName, latestBuild, numOutputLines)
 			os.Stdout.Write(data)
 			/*
 				build, err := getBuild(client, latestBuild.ID)
