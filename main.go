@@ -228,7 +228,7 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 	_, err = getLatestBuild(ctx, client, orgName, slug, branch)
 	if err != nil {
 		if berr, ok := err.(*buildkite.Error); ok && berr.StatusCode == 404 {
-			pipelineSlug, err := buildkite.FindPipelineSlug(ctx, client.Client, orgName, slug)
+			pipelineSlug, err := findPipelineSlug(ctx, client, orgName, slug)
 			if err != nil {
 				return err
 			}
@@ -307,9 +307,11 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 				return p.Slug, nil
 			}
 		}
+		break
 
 		// TODO: paging, and parsing the "Link" header.
 	}
+	return "", fmt.Errorf("could not find slug %q", slug)
 }
 
 func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string, numOutputLines int) error {
