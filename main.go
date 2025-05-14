@@ -136,7 +136,7 @@ func failError(err error, msg string) {
 }
 
 func getBuilds(ctx context.Context, client *buildkite.Client, org, repo, branch string) ([]buildkite.Build, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	builds, err := client.Organization(org).Pipeline(repo).ListBuilds(ctx, url.Values{
 		"per_page": []string{"3"},
@@ -160,7 +160,7 @@ func getLatestBuild(ctx context.Context, client *buildkite.Client, org, repo, br
 }
 
 func getAnnotations(ctx context.Context, client *buildkite.Client, org, repo string, build int64) (buildkite.AnnotationResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return client.Organization(org).Pipeline(repo).Build(build).Annotations(ctx, nil)
 }
