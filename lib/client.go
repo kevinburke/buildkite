@@ -52,12 +52,30 @@ func NewClient(token string) *Client {
 		}
 		return &Error{Message: resp.Message, StatusCode: r.StatusCode}
 	}
-	return &Client{Client: rc}
+
+	qc := restclient.NewBearerClient(token, GraphQLHost)
+	qc.ErrorParser = func(r *http.Response) error {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			return fmt.Errorf("received HTTP error %d from Buildkite and could not read the response: %v", r.StatusCode, err)
+		}
+		resp := new(buildkiteErrorResponse)
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return fmt.Errorf("could not decode %d error response as a Buildkite error: %w", r.StatusCode, err)
+		}
+		return &Error{Message: resp.Message, StatusCode: r.StatusCode}
+	}
+
+	return &Client{
+		Client:        rc,
+		GraphQLClient: qc,
+	}
 }
 
 type Client struct {
 	*restclient.Client
-	APIVersion string
+	GraphQLClient *restclient.Client
+	APIVersion    string
 }
 
 // GetResource retrieves an instance resource with the given path part (e.g.
@@ -112,6 +130,27 @@ func (c *Client) MakeRequest(ctx context.Context, method string, pathPart string
 
 func (c *Client) ListResource(ctx context.Context, pathPart string, data url.Values, v interface{}) error {
 	return c.MakeRequest(ctx, "GET", pathPart, data, v)
+}
+
+type canQueryData struct {
+	Typename string `json:"__typename"`
+}
+
+type canQueryResult struct {
+	Data canQueryData `json:"data"`
+}
+
+func (c *Client) CanGraphQL(ctx context.Context) (bool, error) {
+	body := `{"query":"{ __typename }"}`
+	req, err := c.GraphQLClient.NewRequestWithContext(ctx, "POST", "/v1", strings.NewReader(body))
+	if err != nil {
+		return false, err
+	}
+	var v canQueryResult
+	if err := c.GraphQLClient.Do(req, &v); err != nil {
+		return false, err
+	}
+	return v.Data.Typename != "", nil
 }
 
 type OrganizationService struct {
@@ -289,6 +328,7 @@ func (c *Client) BuildSummary(ctx context.Context, org string, build Build, numO
 }
 
 const Host = "https://api.buildkite.com"
+const GraphQLHost = "https://graphql.buildkite.com"
 
 func getHost() string {
 	return Host
