@@ -41,9 +41,12 @@ Also add emoji support, so we can render emoji in iTerm in full fidelity.
 
 ### Configuration
 
-You need to add a local config file. Get a API token from
-https://buildkite.com/user/api-access-tokens. Once you have that, add the config
-file in one of the following locations:
+You need to:
+
+- Get a API token from https://buildkite.com/user/api-access-tokens (if your
+  Buildkite repo names don't match cleanly to Github repo names; enable the
+  GraphQL API for fastest responses).
+- add a local config file in one of the following locations:
 
 ```
 - $XDG_CONFIG_HOME/buildkite
@@ -51,7 +54,7 @@ file in one of the following locations:
 - $HOME/.buildkite
 ```
 
-With these contents:
+Put these contents in the file:
 
 ```toml
 # buildkite config file: github.com/kevinburke/buildkite
@@ -86,3 +89,9 @@ buildkite wait
 ```
 
 This will wait for your build to complete and then print out summary statistics.
+
+Or if you want to open the running build in your browser:
+
+```
+buildkite open
+```

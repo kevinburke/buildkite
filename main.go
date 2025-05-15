@@ -17,11 +17,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kevinburke/bigtext"
@@ -32,7 +34,7 @@ import (
 
 const help = `The buildkite binary interacts with Buildkite CI.
 
-Usage: 
+Usage:
 
 	buildkite command [arguments]
 
@@ -290,28 +292,134 @@ func sameRepo(a, b string) bool {
 	return a == b || strings.HasSuffix(a, "/"+b) || strings.HasSuffix(b, "/"+a)
 }
 
-func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, slug string) (string, error) {
-	const perPage = 100
-	page := 1
+// Result type to standardize return values
+type Result struct {
+	RequestType string
+	Slug        string
+	Error       error
+}
 
-	for {
+func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, slug string) (string, error) {
+
+	ctxA, cancelA := context.WithCancel(ctx)
+	ctxB, cancelB := context.WithCancel(ctx)
+	ctxC, cancelC := context.WithCancel(ctx)
+
+	defer func() {
+		cancelA()
+		cancelB()
+		cancelC()
+	}()
+
+	// Channel for all results
+	results := make(chan Result)
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		const perPage = 100
+		page := 1
+
+		defer wg.Done()
 		data := url.Values{}
 		data.Set("per_page", strconv.Itoa(perPage))
 		data.Set("page", strconv.Itoa(page))
-		pipelines, err := client.Organization(orgName).ListPipelines(ctx, data)
-		if err != nil {
-			return "", err
-		}
-		for _, p := range pipelines {
-			if sameRepo(slug, normalizeRepo(p.Repository)) {
-				return p.Slug, nil
+		pipelines, err := client.Organization(orgName).ListPipelines(ctxA, data)
+		res := Result{RequestType: "A", Error: err}
+		if pipelines == nil {
+			for _, p := range pipelines {
+				if sameRepo(slug, normalizeRepo(p.Repository)) {
+					res.Slug = p.Slug
+				}
 			}
 		}
-		break
+		select {
+		case results <- res:
+		case <-ctxA.Done():
+			// Context was cancelled, don't send result
+		}
+	}()
 
-		// TODO: paging, and parsing the "Link" header.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		success, err := client.GraphQL().Can(ctxB)
+		can := ""
+		if success {
+			can = "can"
+		}
+		select {
+		case results <- Result{"B", can, err}:
+		case <-ctxB.Done():
+			// Context was cancelled, don't send result
+		}
+	}()
+
+	// Start request C: GraphQLPipelines
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		resp, err := client.GraphQL().PipelineRepositoriesSlugs(ctxC, orgName, nil)
+		res := Result{RequestType: "C", Error: err}
+		if resp != nil {
+			for _, node := range resp.Data.Organization.Pipelines.Edges {
+				if node.Node.Repository.URL != "" {
+					if sameRepo(slug, normalizeRepo(node.Node.Repository.URL)) {
+						res.Slug = node.Node.Slug
+					}
+				}
+			}
+		}
+		select {
+		case results <- res:
+		case <-ctxC.Done():
+			// Context was cancelled, don't send result
+		}
+	}()
+
+	// Create a goroutine to close the results channel when all requests are done
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Process results and apply cancellation rules
+	bkSlug := ""
+	for result := range results {
+		if result.Error != nil {
+			continue
+		}
+
+		switch result.RequestType {
+		case "A":
+			if result.Slug != "" {
+				slog.Debug("Request A (ListPipelines) succeeded, cancelling B and C")
+				cancelB()
+				cancelC()
+				bkSlug = result.Slug
+			}
+
+		case "B":
+			if result.Slug == "" {
+				slog.Debug("Request B (Can) returned false, cancelling C")
+				cancelC()
+			}
+
+		case "C":
+			if result.Slug != "" {
+				slog.Debug("Request C (GraphQLPipelines) succeeded, cancelling A and B")
+				cancelA()
+				cancelB()
+				bkSlug = result.Slug
+			}
+		}
 	}
-	return "", fmt.Errorf("could not find slug %q", slug)
+
+	if bkSlug != "" {
+		return bkSlug, nil
+	}
+	return "", fmt.Errorf("could not find pipeline slug for %q", slug)
 }
 
 func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string, numOutputLines int) error {

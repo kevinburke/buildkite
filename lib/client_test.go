@@ -6,12 +6,13 @@ import (
 )
 
 func TestGraphQL(t *testing.T) {
+	t.Skip("this hits the real API, TODO rework to use local server")
 	ctx := context.Background()
 	cfg, err := LoadConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := cfg.Token("twilio")
+	token, err := cfg.Token("kevinburke")
 	if err != nil {
 		t.Fatal(err)
 	}
