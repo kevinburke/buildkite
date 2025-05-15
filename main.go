@@ -360,16 +360,32 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		resp, err := client.GraphQL().PipelineRepositoriesSlugs(ctxC, orgName, nil)
-		res := Result{RequestType: "C", Error: err}
-		if resp != nil {
-			for _, node := range resp.Data.Organization.Pipelines.Edges {
-				if node.Node.Repository.URL != "" {
-					if sameRepo(slug, normalizeRepo(node.Node.Repository.URL)) {
-						res.Slug = node.Node.Slug
+		parameters := map[string]interface{}{
+			"first": 250,
+		}
+		found := false
+		res := Result{RequestType: "C"}
+		for !found {
+			resp, err := client.GraphQL().PipelineRepositoriesSlugs(ctxC, orgName, parameters)
+			if err != nil {
+				res.Error = err
+				break
+			}
+			if resp != nil {
+				for _, node := range resp.Data.Organization.Pipelines.Edges {
+					if node.Node.Repository.URL != "" {
+						if sameRepo(slug, normalizeRepo(node.Node.Repository.URL)) {
+							res.Slug = node.Node.Slug
+							found = true
+							break
+						}
 					}
 				}
 			}
+			if !resp.Data.Organization.Pipelines.PageInfo.HasNextPage {
+				break
+			}
+			parameters["after"] = resp.Data.Organization.Pipelines.PageInfo.EndCursor
 		}
 		select {
 		case results <- res:
