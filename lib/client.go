@@ -128,6 +128,19 @@ func (c *Client) MakeRequest(ctx context.Context, method string, pathPart string
 	return c.Do(req, &v)
 }
 
+func (c *Client) GraphQLRequest(ctx context.Context, query string, v interface{}) error {
+	req, err := c.GraphQLClient.NewRequestWithContext(ctx, "POST", "/v1", strings.NewReader(query))
+	if err != nil {
+		return err
+	}
+	if ua := req.Header.Get("User-Agent"); ua == "" {
+		req.Header.Set("User-Agent", userAgent)
+	} else {
+		req.Header.Set("User-Agent", userAgent+" "+ua)
+	}
+	return c.Do(req, &v)
+}
+
 func (c *Client) ListResource(ctx context.Context, pathPart string, data url.Values, v interface{}) error {
 	return c.MakeRequest(ctx, "GET", pathPart, data, v)
 }
@@ -140,17 +153,103 @@ type canQueryResult struct {
 	Data canQueryData `json:"data"`
 }
 
-func (c *Client) CanGraphQL(ctx context.Context) (bool, error) {
-	body := `{"query":"{ __typename }"}`
-	req, err := c.GraphQLClient.NewRequestWithContext(ctx, "POST", "/v1", strings.NewReader(body))
-	if err != nil {
-		return false, err
-	}
+func (c *GraphQLService) Can(ctx context.Context) (bool, error) {
+	query := `{"query":"{ __typename }"}`
 	var v canQueryResult
-	if err := c.GraphQLClient.Do(req, &v); err != nil {
+	if err := c.client.GraphQLRequest(ctx, query, &v); err != nil {
 		return false, err
 	}
 	return v.Data.Typename != "", nil
+}
+
+type GraphQLService struct {
+	client *Client
+}
+
+func (c *Client) GraphQL() *GraphQLService {
+	return &GraphQLService{c}
+}
+
+type PipelineRepositoriesSlugsResponse struct {
+	Data struct {
+		Organization struct {
+			Pipelines Pipelines `json:"pipelines"`
+		} `json:"organization"`
+	} `json:"data"`
+}
+
+// Pipelines groups the edges (actual pipelines) and page-info.
+type Pipelines struct {
+	PageInfo PageInfo       `json:"pageInfo"`
+	Edges    []PipelineEdge `json:"edges"`
+}
+
+// PageInfo carries pagination cursors / flags.
+type PageInfo struct {
+	HasNextPage bool   `json:"hasNextPage"`
+	EndCursor   string `json:"endCursor"`
+}
+
+// PipelineEdge wraps the Node, exactly like the GraphQL connection spec.
+type PipelineEdge struct {
+	Node PipelineNode `json:"node"`
+}
+
+// PipelineNode is a single Buildkite pipeline.
+type PipelineNode struct {
+	Slug       string     `json:"slug"`
+	Repository Repository `json:"repository"`
+}
+
+// Repository is the Git repository backing the pipeline.
+type Repository struct {
+	URL string `json:"url"`
+}
+
+type GraphQLRequest struct {
+	Query     string                 `json:"query"`
+	Variables map[string]interface{} `json:"variables"`
+}
+
+func (c *GraphQLService) PipelineRepositoriesSlugs(ctx context.Context, organization string, data map[string]interface{}) (*PipelineRepositoriesSlugsResponse, error) {
+	query := `query Pipelines($org: ID!, $first: Int!, $after: String) {
+  organization(slug: $org) {
+    pipelines(first: $first, after: $after) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      edges {
+        node {
+          slug
+          repository {
+            url
+          }
+        }
+      }
+    }
+  }
+}`
+	if data == nil {
+		data = make(map[string]interface{})
+	}
+	req := &GraphQLRequest{Query: query, Variables: data}
+	data["org"] = organization
+	if _, ok := data["first"]; !ok {
+		data["first"] = 100
+	}
+	if _, ok := data["after"]; !ok {
+		data["after"] = nil
+	}
+	queryData, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	var resp PipelineRepositoriesSlugsResponse
+	if err := c.client.GraphQLRequest(ctx, string(queryData), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 type OrganizationService struct {
