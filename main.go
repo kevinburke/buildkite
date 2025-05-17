@@ -29,7 +29,6 @@ import (
 	"github.com/kevinburke/bigtext"
 	buildkite "github.com/kevinburke/buildkite/lib"
 	git "github.com/kevinburke/go-git"
-	"github.com/pkg/browser"
 )
 
 const help = `The buildkite binary interacts with Buildkite CI.
@@ -266,7 +265,7 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 			}
 			continue
 		}
-		if err := browser.OpenURL(latestBuild.WebURL); err != nil {
+		if err := openURL(org, latestBuild.WebURL); err != nil {
 			return err
 		}
 		return nil

@@ -109,6 +109,16 @@ type Organization struct {
 	Token string
 	// List of git remotes that map to this Buildkite organization
 	GitRemotes []string `toml:"git_remotes"`
+
+	// The application name of the browser you would like to open for the "open"
+	// command ("Google Chrome", "Firefox", "Chromium", etc).
+	BrowserApplication string `toml:"browser_application"`
+
+	// The profile name you would like to open. Chromium names these "Default",
+	// "Profile 1", "Profile 2", etc. To find the exact name, look in the
+	// "info_cache" field of e.g.
+	// "~/Library/Application Support/Chromium/Local State".
+	BrowserProfile string `toml:"browser_profile"`
 }
 
 // getCaseInsensitiveOrg finds the key in the list of orgs. This is a case

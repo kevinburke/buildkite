@@ -95,3 +95,23 @@ Or if you want to open the running build in your browser:
 ```
 buildkite open
 ```
+
+##### Configuring browser/browser "profile"
+
+In your config file, add the following flags to specify a browser and
+a "profile":
+
+```toml
+[organizations.example]
+token = "bkua_123"
+
+// The application name of the browser you would like to open for the "open"
+// command ("Google Chrome", "Firefox", "Chromium", etc).
+browser_application = "Google Chrome"
+
+// The profile name you would like to open. Chromium names these "Default",
+// "Profile 1", "Profile 2", etc. To find the exact name, look in the
+// "info_cache" field of e.g.
+// "~/Library/Application Support/Chromium/Local State".
+browser_profile = "Profile 3"
+```
