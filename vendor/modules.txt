@@ -43,16 +43,14 @@ github.com/dlclark/regexp2/syntax
 # github.com/gofrs/uuid v4.4.0+incompatible
 ## explicit
 github.com/gofrs/uuid
-# github.com/google/go-cmp v0.6.0
-## explicit; go 1.13
 # github.com/gorilla/css v1.0.0
 ## explicit
 github.com/gorilla/css/scanner
 # github.com/kevinburke/bigtext v0.0.0-20220519224329-c26d116ded71
 ## explicit
 github.com/kevinburke/bigtext
-# github.com/kevinburke/go-git v0.0.0-20220520045906-9c1360549bac
-## explicit
+# github.com/kevinburke/go-git v0.11.1
+## explicit; go 1.21
 github.com/kevinburke/go-git
 # github.com/kevinburke/go-types v0.0.0-20210723172823-2deba1f80ba7
 ## explicit
@@ -86,9 +84,6 @@ github.com/muesli/termenv
 # github.com/olekukonko/tablewriter v0.0.5
 ## explicit; go 1.12
 github.com/olekukonko/tablewriter
-# github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
-## explicit; go 1.14
-github.com/pkg/browser
 # github.com/rivo/uniseg v0.2.0
 ## explicit; go 1.12
 github.com/rivo/uniseg

@@ -108,14 +108,14 @@ branch to wait for.
 	case "wait":
 		waitflags.Parse(subargs)
 		args := waitflags.Args()
-		branch, err := getBranchFromArgs(args)
+		branch, err := getBranchFromArgs(ctx, args)
 		checkError(err, "getting git branch")
 		err = doWait(ctx, client, org, remote, branch, *waitOutputLines)
 		checkError(err, "waiting for branch")
 	case "open":
 		openflags.Parse(subargs)
 		args := openflags.Args()
-		branch, err := getBranchFromArgs(args)
+		branch, err := getBranchFromArgs(ctx, args)
 		checkError(err, "getting git branch")
 		checkError(doOpen(ctx, openflags, client, org, remote, branch), "opening build")
 	default:

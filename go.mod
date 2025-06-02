@@ -7,10 +7,9 @@ require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/charmbracelet/glamour v0.7.0
 	github.com/kevinburke/bigtext v0.0.0-20220519224329-c26d116ded71
-	github.com/kevinburke/go-git v0.0.0-20220520045906-9c1360549bac
+	github.com/kevinburke/go-git v0.11.1
 	github.com/kevinburke/go-types v0.0.0-20210723172823-2deba1f80ba7
 	github.com/kevinburke/rest v0.0.0-20231107185522-a9c371f90234
-	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	golang.org/x/term v0.20.0
 )
 
@@ -23,7 +22,6 @@ require (
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/dlclark/regexp2 v1.4.0 // indirect
 	github.com/gofrs/uuid v4.4.0+incompatible // indirect
-	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/gorilla/css v1.0.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.18 // indirect

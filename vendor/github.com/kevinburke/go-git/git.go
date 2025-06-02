@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -12,7 +13,7 @@ import (
 	"strings"
 )
 
-const version = "0.10"
+const version = "0.11.1"
 
 type GitFormat int
 
@@ -66,16 +67,12 @@ type RemoteURL struct {
 }
 
 func getPathAndRepoName(pathAndRepo string) (string, string) {
-	if strings.HasSuffix(pathAndRepo, "/") {
-		pathAndRepo = pathAndRepo[:len(pathAndRepo)-1]
-	}
+	pathAndRepo = strings.TrimSuffix(pathAndRepo, "/")
 	paths := strings.Split(pathAndRepo, "/")
 	repoName := paths[len(paths)-1]
 	path := strings.Join(paths[:len(paths)-1], "/")
-	// there is probably a way to put this in the regex.
-	if strings.HasSuffix(repoName, ".git") {
-		repoName = repoName[:len(repoName)-len(".git")]
-	}
+
+	repoName = strings.TrimSuffix(repoName, ".git")
 	return path, repoName
 }
 
@@ -122,7 +119,7 @@ func ParseRemoteURL(remoteURL string) (*RemoteURL, error) {
 	}
 	u, err := url.Parse(remoteURL)
 	if err != nil {
-		return nil, fmt.Errorf("Could not parse %s as a git remote", remoteURL)
+		return nil, fmt.Errorf("could not parse %s as a git remote", remoteURL)
 	}
 	if u.Scheme == "ssh" {
 		// long SSH format
@@ -138,7 +135,7 @@ func ParseRemoteURL(remoteURL string) (*RemoteURL, error) {
 		} else {
 			port, err := strconv.Atoi(portstr)
 			if err != nil && port < 0 {
-				return nil, fmt.Errorf("Could not parse %s as a git remote: port was not a valid number", remoteURL)
+				return nil, fmt.Errorf("could not parse %s as a git remote: port was not a valid number", remoteURL)
 			}
 			rmurl.Port = port
 		}
@@ -147,16 +144,16 @@ func ParseRemoteURL(remoteURL string) (*RemoteURL, error) {
 		// this might be too "tight" but in practice this is how remote URL's
 		// are formed at most every git repo
 		if len(pathparts) > 2 {
-			return nil, fmt.Errorf("Could not parse %s as a git remote: too many slashes in repo name", remoteURL)
+			return nil, fmt.Errorf("could not parse %s as a git remote: too many slashes in repo name", remoteURL)
 		}
 		if len(pathparts) <= 1 {
-			return nil, fmt.Errorf("Could not parse %s as a git remote: could not find both org and repo", remoteURL)
+			return nil, fmt.Errorf("could not parse %s as a git remote: could not find both org and repo", remoteURL)
 		}
 		rmurl.Path = pathparts[0]
 		rmurl.RepoName = strings.TrimSuffix(pathparts[1], ".git")
 		return rmurl, nil
 	}
-	return nil, fmt.Errorf("Could not parse %s as a git remote", remoteURL)
+	return nil, fmt.Errorf("could not parse %s as a git remote", remoteURL)
 }
 
 // RemoteURL returns a Remote object with information about the given Git
@@ -173,12 +170,19 @@ func GetRemoteURL(remoteName string) (*RemoteURL, error) {
 
 // CurrentBranch returns the name of the current Git branch. Returns an error
 // if you are not on a branch, or if you are not in a git repository.
-func CurrentBranch() (string, error) {
-	result, err := exec.Command("git", "symbolic-ref", "--short", "HEAD").Output()
+func CurrentBranch(ctx context.Context) (string, error) {
+	result, err := exec.CommandContext(ctx, "git", "symbolic-ref", "--short", "HEAD").Output()
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(result)), nil
+
+	// Strip any prefix (heads/, remotes/origin/, tags/, etc.)
+	branch := strings.TrimSpace(string(result))
+	if idx := strings.LastIndex(branch, "/"); idx != -1 {
+		branch = branch[idx+1:]
+	}
+
+	return branch, nil
 }
 
 // Tip returns the SHA of the given Git branch. If the empty string is
