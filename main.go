@@ -272,6 +272,8 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 	}
 }
 
+// this just turns everything into e.g. github.com/user/repo stripping leading
+// and trailing info.
 func normalizeRepo(u string) string {
 	u = strings.TrimSpace(u)
 	u = strings.TrimSuffix(u, ".git")
@@ -287,8 +289,10 @@ func normalizeRepo(u string) string {
 	return strings.ToLower(u)
 }
 
-func sameRepo(a, b string) bool {
-	return a == b || strings.HasSuffix(a, "/"+b) || strings.HasSuffix(b, "/"+a)
+func sameRepo(orgName, slug, comparison string) bool {
+	userRepo := strings.TrimSuffix(orgName+"/"+slug, "/")
+	comparison = strings.TrimSuffix(comparison, "/")
+	return comparison == userRepo || strings.HasSuffix(comparison, "/"+userRepo) || strings.HasSuffix(userRepo, "/"+comparison)
 }
 
 // Result type to standardize return values
@@ -328,7 +332,7 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 		res := Result{RequestType: "A", Error: err}
 		if pipelines == nil {
 			for _, p := range pipelines {
-				if sameRepo(slug, normalizeRepo(p.Repository)) {
+				if sameRepo(orgName, slug, normalizeRepo(p.Repository)) {
 					res.Slug = p.Slug
 				}
 			}
@@ -373,7 +377,7 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 			if resp != nil {
 				for _, node := range resp.Data.Organization.Pipelines.Edges {
 					if node.Node.Repository.URL != "" {
-						if sameRepo(slug, normalizeRepo(node.Node.Repository.URL)) {
+						if sameRepo(orgName, slug, normalizeRepo(node.Node.Repository.URL)) {
 							res.Slug = node.Node.Slug
 							found = true
 							break
