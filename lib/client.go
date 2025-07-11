@@ -199,6 +199,19 @@ type PipelineEdge struct {
 type PipelineNode struct {
 	Slug       string     `json:"slug"`
 	Repository Repository `json:"repository"`
+	Builds     Builds     `json:"builds"`
+}
+
+type Builds struct {
+	Edges []BuildEdge `json:"edges"`
+}
+
+type BuildEdge struct {
+	Node BuildNode `json:"node"`
+}
+
+type BuildNode struct {
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // Repository is the Git repository backing the pipeline.
@@ -211,10 +224,10 @@ type GraphQLRequest struct {
 	Variables map[string]interface{} `json:"variables"`
 }
 
-func (c *GraphQLService) PipelineRepositoriesSlugs(ctx context.Context, organization string, data map[string]interface{}) (*PipelineRepositoriesSlugsResponse, error) {
-	query := `query Pipelines($org: ID!, $first: Int!, $after: String) {
+func (c *GraphQLService) PipelineRepositoriesSlugs(ctx context.Context, organization string, slug string, data map[string]interface{}) (*PipelineRepositoriesSlugsResponse, error) {
+	query := `query Pipelines($org: ID!, $first: Int!, $after: String, $search: String) {
   organization(slug: $org) {
-    pipelines(first: $first, after: $after) {
+    pipelines(first: $first, after: $after, order: RELEVANCE, search: $search) {
       pageInfo {
         hasNextPage
         endCursor
@@ -224,6 +237,13 @@ func (c *GraphQLService) PipelineRepositoriesSlugs(ctx context.Context, organiza
           slug
           repository {
             url
+          }
+          builds(first: 2) {
+            edges {
+              node {
+                createdAt
+              }
+            }
           }
         }
       }
@@ -235,6 +255,7 @@ func (c *GraphQLService) PipelineRepositoriesSlugs(ctx context.Context, organiza
 	}
 	req := &GraphQLRequest{Query: query, Variables: data}
 	data["org"] = organization
+	data["search"] = slug
 	if _, ok := data["first"]; !ok {
 		data["first"] = 100
 	}

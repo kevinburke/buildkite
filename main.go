@@ -80,7 +80,11 @@ branch to wait for.
 `)
 		waitflags.PrintDefaults()
 	}
+	debug := flag.Bool("debug", false, "Enable the debug log level")
 	flag.Parse()
+	if *debug {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
 	mainArgs := flag.Args()
 	if len(mainArgs) < 1 {
 		usage()
@@ -290,9 +294,14 @@ func normalizeRepo(u string) string {
 }
 
 func sameRepo(orgName, slug, comparison string) bool {
-	userRepo := strings.TrimSuffix(orgName+"/"+slug, "/")
-	comparison = strings.TrimSuffix(comparison, "/")
-	return comparison == userRepo || strings.HasSuffix(comparison, "/"+userRepo) || strings.HasSuffix(userRepo, "/"+comparison)
+	// can't use the org name => github org name because they might not match,
+	// by default.
+	// unfortunately this means forks will match
+
+	// userRepo := strings.TrimSuffix(orgName+"/"+slug, "/")
+	// comparison = strings.TrimSuffix(comparison, "/")
+	// return comparison == userRepo || strings.HasSuffix(comparison, "/"+userRepo) || strings.HasSuffix(userRepo, "/"+comparison)
+	return strings.HasSuffix(comparison, slug)
 }
 
 // Result type to standardize return values
@@ -369,7 +378,7 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 		found := false
 		res := Result{RequestType: "C"}
 		for !found {
-			resp, err := client.GraphQL().PipelineRepositoriesSlugs(ctxC, orgName, parameters)
+			resp, err := client.GraphQL().PipelineRepositoriesSlugs(ctxC, orgName, slug, parameters)
 			if err != nil {
 				res.Error = err
 				break
@@ -377,7 +386,10 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 			if resp != nil {
 				for _, node := range resp.Data.Organization.Pipelines.Edges {
 					if node.Node.Repository.URL != "" {
-						if sameRepo(orgName, slug, normalizeRepo(node.Node.Repository.URL)) {
+						normalized := normalizeRepo(node.Node.Repository.URL)
+						s := sameRepo(orgName, slug, normalized)
+						slog.Debug("checking repo", "org", orgName, "slug", slug, "normalized", normalized, "same", s)
+						if s {
 							res.Slug = node.Node.Slug
 							found = true
 							break
@@ -407,9 +419,11 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 	bkSlug := ""
 	for result := range results {
 		if result.Error != nil {
+			slog.Debug("got result.Error", "err", result.Error)
 			continue
 		}
 
+		slog.Debug("request type", "type", result.RequestType, "slug", result.Slug)
 		switch result.RequestType {
 		case "A":
 			if result.Slug != "" {
