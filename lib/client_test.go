@@ -27,7 +27,7 @@ func TestGraphQL(t *testing.T) {
 		}
 	})
 	t.Run("PipelineRepositoriesSlugs", func(t *testing.T) {
-		resp, err := client.GraphQL().PipelineRepositoriesSlugs(ctx, "twilio", nil)
+		resp, err := client.GraphQL().PipelineRepositoriesSlugs(ctx, "twilio", "repo", nil)
 		if err != nil {
 			t.Fatal(err)
 		}

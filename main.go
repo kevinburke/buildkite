@@ -294,14 +294,116 @@ func normalizeRepo(u string) string {
 }
 
 func sameRepo(orgName, slug, comparison string) bool {
-	// can't use the org name => github org name because they might not match,
-	// by default.
-	// unfortunately this means forks will match
+	userRepo := strings.TrimSuffix(orgName+"/"+slug, "/")
+	comparison = normalizeRepo(comparison)
+	comparison = strings.TrimSuffix(comparison, "/")
+	return comparison == userRepo || strings.HasSuffix(comparison, "/"+userRepo) || strings.HasSuffix(userRepo, "/"+comparison)
+}
 
-	// userRepo := strings.TrimSuffix(orgName+"/"+slug, "/")
-	// comparison = strings.TrimSuffix(comparison, "/")
-	// return comparison == userRepo || strings.HasSuffix(comparison, "/"+userRepo) || strings.HasSuffix(userRepo, "/"+comparison)
-	return strings.HasSuffix(comparison, slug)
+// longestCommonSuffix returns the length of the longest common suffix between two strings
+func longestCommonSuffix(a, b string) int {
+	i, j := len(a)-1, len(b)-1
+	count := 0
+	for i >= 0 && j >= 0 && a[i] == b[j] {
+		count++
+		i--
+		j--
+	}
+	return count
+}
+
+// levenshteinDistance calculates the edit distance between two strings
+func levenshteinDistance(a, b string) int {
+	if len(a) == 0 {
+		return len(b)
+	}
+	if len(b) == 0 {
+		return len(a)
+	}
+
+	matrix := make([][]int, len(a)+1)
+	for i := range matrix {
+		matrix[i] = make([]int, len(b)+1)
+		matrix[i][0] = i
+	}
+	for j := 0; j <= len(b); j++ {
+		matrix[0][j] = j
+	}
+
+	for i := 1; i <= len(a); i++ {
+		for j := 1; j <= len(b); j++ {
+			cost := 0
+			if a[i-1] != b[j-1] {
+				cost = 1
+			}
+			matrix[i][j] = min(
+				min(matrix[i-1][j]+1, matrix[i][j-1]+1), // deletion vs insertion
+				matrix[i-1][j-1]+cost,                   // substitution
+			)
+		}
+	}
+	return matrix[len(a)][len(b)]
+}
+
+// repoSimilarityScore calculates a similarity score between the target repo and a candidate repo
+// Higher scores indicate better matches
+func repoSimilarityScore(orgName, slug, repoURL string) int {
+	userRepo := strings.TrimSuffix(orgName+"/"+slug, "/")
+	comparison := normalizeRepo(repoURL)
+	comparison = strings.TrimSuffix(comparison, "/")
+
+	// No match at all according to existing logic gets 0
+	if !sameRepo(orgName, slug, repoURL) {
+		return 0
+	}
+
+	// Exact match (after normalization) gets highest score
+	if comparison == userRepo {
+		return 1000
+	}
+
+	// Check if comparison ends with our org/repo (like github.com/myorg/myrepo vs myorg/myrepo)
+	if strings.HasSuffix(comparison, "/"+userRepo) {
+		return 1000 // This is effectively exact match
+	}
+
+	// For partial matches, calculate similarity score
+	score := 0
+
+	// Longer common suffix gets higher score (up to 200 points)
+	commonSuffix := longestCommonSuffix(userRepo, comparison)
+	score += commonSuffix * 5
+
+	// Same number of path segments gets bonus (50 points)
+	if strings.Count(userRepo, "/") == strings.Count(comparison, "/") {
+		score += 50
+	}
+
+	// Edit distance penalty - closer strings get higher scores (up to 100 points)
+	editDist := levenshteinDistance(userRepo, comparison)
+	maxLen := len(userRepo)
+	if len(comparison) > maxLen {
+		maxLen = len(comparison)
+	}
+	if maxLen > 0 {
+		score += max(0, 100-(editDist*100/maxLen))
+	}
+
+	return score
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // Result type to standardize return values
@@ -339,11 +441,18 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 		data.Set("page", strconv.Itoa(page))
 		pipelines, err := client.Organization(orgName).ListPipelines(ctxA, data)
 		res := Result{RequestType: "A", Error: err}
-		if pipelines == nil {
+		if pipelines != nil {
+			bestScore := 0
+			bestSlug := ""
 			for _, p := range pipelines {
-				if sameRepo(orgName, slug, normalizeRepo(p.Repository)) {
-					res.Slug = p.Slug
+				score := repoSimilarityScore(orgName, slug, p.Repository)
+				if score > bestScore {
+					bestScore = score
+					bestSlug = p.Slug
 				}
+			}
+			if bestScore > 0 {
+				res.Slug = bestSlug
 			}
 		}
 		select {
@@ -375,9 +484,11 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 		parameters := map[string]interface{}{
 			"first": 250,
 		}
-		found := false
 		res := Result{RequestType: "C"}
-		for !found {
+		bestScore := 0
+		bestSlug := ""
+
+		for {
 			resp, err := client.GraphQL().PipelineRepositoriesSlugs(ctxC, orgName, slug, parameters)
 			if err != nil {
 				res.Error = err
@@ -386,13 +497,10 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 			if resp != nil {
 				for _, node := range resp.Data.Organization.Pipelines.Edges {
 					if node.Node.Repository.URL != "" {
-						normalized := normalizeRepo(node.Node.Repository.URL)
-						s := sameRepo(orgName, slug, normalized)
-						slog.Debug("checking repo", "org", orgName, "slug", slug, "normalized", normalized, "same", s)
-						if s {
-							res.Slug = node.Node.Slug
-							found = true
-							break
+						score := repoSimilarityScore(orgName, slug, node.Node.Repository.URL)
+						if score > bestScore {
+							bestScore = score
+							bestSlug = node.Node.Slug
 						}
 					}
 				}
@@ -401,6 +509,10 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 				break
 			}
 			parameters["after"] = resp.Data.Organization.Pipelines.PageInfo.EndCursor
+		}
+
+		if bestScore > 0 {
+			res.Slug = bestSlug
 		}
 		select {
 		case results <- res:

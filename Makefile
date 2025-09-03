@@ -1,5 +1,5 @@
 test:
-	go test ./...
+	go test -trimpath ./...
 
 release:
 	bump_version --tag-prefix=v minor lib/lib.go
@@ -11,3 +11,6 @@ AUTHORS.txt: force | $(WRITE_MAILMAP)
 	write_mailmap > AUTHORS.txt
 
 authors: AUTHORS.txt
+
+fmt:
+	go fmt ./...
