@@ -378,6 +378,20 @@ func TestRepoSimilarityScore(t *testing.T) {
 			repoURL:  "GITHUB.COM/MYORG/MYREPO",
 			expected: 200, // Should be > 0 due to normalization
 		},
+		{
+			name:     "Repo name contained in slug with prefixes",
+			orgName:  "twilio-internal",
+			slug:     "internal-product-docs",
+			repoURL:  "github.com/twilio-internal/twilio-internal-internal-product-docs",
+			expected: 500, // Should get high score for containing match
+		},
+		{
+			name:     "Repo name at end of slug",
+			orgName:  "myorg",
+			slug:     "myrepo",
+			repoURL:  "github.com/myorg/prefix-myrepo",
+			expected: 500, // Should get high score for suffix match
+		},
 	}
 
 	for _, tt := range tests {

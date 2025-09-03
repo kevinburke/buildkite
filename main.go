@@ -352,44 +352,81 @@ func repoSimilarityScore(orgName, slug, repoURL string) int {
 	comparison := normalizeRepo(repoURL)
 	comparison = strings.TrimSuffix(comparison, "/")
 
-	// No match at all according to existing logic gets 0
-	if !sameRepo(orgName, slug, repoURL) {
-		return 0
+	// First check if it matches with the existing logic
+	if sameRepo(orgName, slug, repoURL) {
+		// Exact match (after normalization) gets highest score
+		if comparison == userRepo {
+			return 1000
+		}
+
+		// Check if comparison ends with our org/repo (like github.com/myorg/myrepo vs myorg/myrepo)
+		if strings.HasSuffix(comparison, "/"+userRepo) {
+			return 1000 // This is effectively exact match
+		}
+
+		// For partial matches using existing sameRepo logic, calculate similarity score
+		score := 0
+
+		// Longer common suffix gets higher score (up to 200 points)
+		commonSuffix := longestCommonSuffix(userRepo, comparison)
+		score += commonSuffix * 5
+
+		// Same number of path segments gets bonus (50 points)
+		if strings.Count(userRepo, "/") == strings.Count(comparison, "/") {
+			score += 50
+		}
+
+		// Edit distance penalty - closer strings get higher scores (up to 100 points)
+		editDist := levenshteinDistance(userRepo, comparison)
+		maxLen := len(userRepo)
+		if len(comparison) > maxLen {
+			maxLen = len(comparison)
+		}
+		if maxLen > 0 {
+			score += max(0, 100-(editDist*100/maxLen))
+		}
+
+		return score
 	}
 
-	// Exact match (after normalization) gets highest score
-	if comparison == userRepo {
-		return 1000
+	// Enhanced logic for cases where repo name is contained within slug
+	// Extract just the repo parts (after the last slash) from both userRepo and comparison
+	userRepoParts := strings.Split(userRepo, "/")
+	comparisonParts := strings.Split(comparison, "/")
+
+	if len(userRepoParts) >= 2 && len(comparisonParts) >= 2 {
+		repoName := userRepoParts[len(userRepoParts)-1]          // e.g., "internal-product-docs"
+		candidateSlug := comparisonParts[len(comparisonParts)-1] // e.g., "twilio-internal-internal-product-docs"
+
+		// Check if the repo name is contained in the candidate slug
+		if strings.Contains(candidateSlug, repoName) {
+			score := 500 // Base score for containing match
+
+			// Bonus if it's at the end (more likely to be the same project)
+			if strings.HasSuffix(candidateSlug, repoName) {
+				score += 200
+			}
+
+			// Penalty based on extra characters (shorter extra parts = higher score)
+			extraChars := len(candidateSlug) - len(repoName)
+			if extraChars <= 10 {
+				score += 100 - (extraChars * 5)
+			}
+
+			// Check if orgs match or are similar
+			orgName = strings.ToLower(orgName)
+			candidateOrg := strings.ToLower(comparisonParts[len(comparisonParts)-2])
+			if orgName == candidateOrg {
+				score += 100
+			} else if strings.Contains(candidateOrg, orgName) || strings.Contains(orgName, candidateOrg) {
+				score += 50
+			}
+
+			return score
+		}
 	}
 
-	// Check if comparison ends with our org/repo (like github.com/myorg/myrepo vs myorg/myrepo)
-	if strings.HasSuffix(comparison, "/"+userRepo) {
-		return 1000 // This is effectively exact match
-	}
-
-	// For partial matches, calculate similarity score
-	score := 0
-
-	// Longer common suffix gets higher score (up to 200 points)
-	commonSuffix := longestCommonSuffix(userRepo, comparison)
-	score += commonSuffix * 5
-
-	// Same number of path segments gets bonus (50 points)
-	if strings.Count(userRepo, "/") == strings.Count(comparison, "/") {
-		score += 50
-	}
-
-	// Edit distance penalty - closer strings get higher scores (up to 100 points)
-	editDist := levenshteinDistance(userRepo, comparison)
-	maxLen := len(userRepo)
-	if len(comparison) > maxLen {
-		maxLen = len(comparison)
-	}
-	if maxLen > 0 {
-		score += max(0, 100-(editDist*100/maxLen))
-	}
-
-	return score
+	return 0 // No meaningful match found
 }
 
 func min(a, b int) int {
