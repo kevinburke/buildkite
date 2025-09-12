@@ -233,11 +233,26 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 	_, err = getLatestBuild(ctx, client, orgName, slug, branch)
 	if err != nil {
 		if berr, ok := err.(*buildkite.Error); ok && berr.StatusCode == 404 {
-			pipelineSlug, err := findPipelineSlug(ctx, client, orgName, slug)
+			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
 			if err != nil {
 				return err
 			}
-			slug = pipelineSlug
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch)
+			if err != nil {
+				return err
+			}
+			slug = foundSlug
+		} else if err == errNoBuilds {
+			// If original slug has no builds, try candidates
+			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+			if err != nil {
+				return err
+			}
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch)
+			if err != nil {
+				return err
+			}
+			slug = foundSlug
 		} else {
 			fmt.Printf("latest build at top of doWait err: %v\n", err)
 			return err
@@ -450,7 +465,24 @@ type Result struct {
 	Error       error
 }
 
+// ScoredSlug represents a pipeline slug with its similarity score
+type ScoredSlug struct {
+	Slug  string
+	Score int
+}
+
 func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, slug string) (string, error) {
+	candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+	if err != nil {
+		return "", err
+	}
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("could not find pipeline slug for %q", slug)
+	}
+	return candidates[0].Slug, nil
+}
+
+func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName, slug string) ([]ScoredSlug, error) {
 
 	ctxA, cancelA := context.WithCancel(ctx)
 	ctxB, cancelB := context.WithCancel(ctx)
@@ -463,7 +495,13 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 	}()
 
 	// Channel for all results
-	results := make(chan Result)
+	type ResultWithCandidates struct {
+		RequestType string
+		Candidates  []ScoredSlug
+		Error       error
+		CanGraphQL  string
+	}
+	results := make(chan ResultWithCandidates)
 
 	var wg sync.WaitGroup
 
@@ -477,20 +515,24 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 		data.Set("per_page", strconv.Itoa(perPage))
 		data.Set("page", strconv.Itoa(page))
 		pipelines, err := client.Organization(orgName).ListPipelines(ctxA, data)
-		res := Result{RequestType: "A", Error: err}
+		res := ResultWithCandidates{RequestType: "A", Error: err}
 		if pipelines != nil {
-			bestScore := 0
-			bestSlug := ""
+			var candidates []ScoredSlug
 			for _, p := range pipelines {
 				score := repoSimilarityScore(orgName, slug, p.Repository)
-				if score > bestScore {
-					bestScore = score
-					bestSlug = p.Slug
+				if score > 0 {
+					candidates = append(candidates, ScoredSlug{Slug: p.Slug, Score: score})
 				}
 			}
-			if bestScore > 0 {
-				res.Slug = bestSlug
+			// Sort by score descending
+			for i := 0; i < len(candidates)-1; i++ {
+				for j := i + 1; j < len(candidates); j++ {
+					if candidates[j].Score > candidates[i].Score {
+						candidates[i], candidates[j] = candidates[j], candidates[i]
+					}
+				}
 			}
+			res.Candidates = candidates
 		}
 		select {
 		case results <- res:
@@ -508,7 +550,7 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 			can = "can"
 		}
 		select {
-		case results <- Result{"B", can, err}:
+		case results <- ResultWithCandidates{RequestType: "B", CanGraphQL: can, Error: err}:
 		case <-ctxB.Done():
 			// Context was cancelled, don't send result
 		}
@@ -521,10 +563,9 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 		parameters := map[string]interface{}{
 			"first": 250,
 		}
-		res := Result{RequestType: "C"}
-		bestScore := 0
-		bestSlug := ""
+		res := ResultWithCandidates{RequestType: "C"}
 
+		var candidates []ScoredSlug
 		for {
 			resp, err := client.GraphQL().PipelineRepositoriesSlugs(ctxC, orgName, slug, parameters)
 			if err != nil {
@@ -535,9 +576,8 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 				for _, node := range resp.Data.Organization.Pipelines.Edges {
 					if node.Node.Repository.URL != "" {
 						score := repoSimilarityScore(orgName, slug, node.Node.Repository.URL)
-						if score > bestScore {
-							bestScore = score
-							bestSlug = node.Node.Slug
+						if score > 0 {
+							candidates = append(candidates, ScoredSlug{Slug: node.Node.Slug, Score: score})
 						}
 					}
 				}
@@ -548,9 +588,15 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 			parameters["after"] = resp.Data.Organization.Pipelines.PageInfo.EndCursor
 		}
 
-		if bestScore > 0 {
-			res.Slug = bestSlug
+		// Sort by score descending
+		for i := 0; i < len(candidates)-1; i++ {
+			for j := i + 1; j < len(candidates); j++ {
+				if candidates[j].Score > candidates[i].Score {
+					candidates[i], candidates[j] = candidates[j], candidates[i]
+				}
+			}
 		}
+		res.Candidates = candidates
 		select {
 		case results <- res:
 		case <-ctxC.Done():
@@ -565,43 +611,64 @@ func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, sl
 	}()
 
 	// Process results and apply cancellation rules
-	bkSlug := ""
+	var allCandidates []ScoredSlug
+	canUseGraphQL := true
 	for result := range results {
 		if result.Error != nil {
 			slog.Debug("got result.Error", "err", result.Error)
 			continue
 		}
 
-		slog.Debug("request type", "type", result.RequestType, "slug", result.Slug)
+		slog.Debug("request type", "type", result.RequestType, "candidates", len(result.Candidates))
 		switch result.RequestType {
 		case "A":
-			if result.Slug != "" {
+			if len(result.Candidates) > 0 {
 				slog.Debug("Request A (ListPipelines) succeeded, cancelling B and C")
 				cancelB()
 				cancelC()
-				bkSlug = result.Slug
+				allCandidates = result.Candidates
 			}
 
 		case "B":
-			if result.Slug == "" {
+			if result.CanGraphQL == "" {
 				slog.Debug("Request B (Can) returned false, cancelling C")
 				cancelC()
+				canUseGraphQL = false
 			}
 
 		case "C":
-			if result.Slug != "" {
+			if len(result.Candidates) > 0 && canUseGraphQL {
 				slog.Debug("Request C (GraphQLPipelines) succeeded, cancelling A and B")
 				cancelA()
 				cancelB()
-				bkSlug = result.Slug
+				allCandidates = result.Candidates
 			}
 		}
 	}
 
-	if bkSlug != "" {
-		return bkSlug, nil
+	if len(allCandidates) > 0 {
+		return allCandidates, nil
 	}
-	return "", fmt.Errorf("could not find pipeline slug for %q", slug)
+	return []ScoredSlug{}, fmt.Errorf("could not find pipeline slug for %q", slug)
+}
+
+// tryPipelineCandidates tries each pipeline candidate in order until it finds one with builds
+func tryPipelineCandidates(ctx context.Context, client *buildkite.Client, orgName string, candidates []ScoredSlug, branch string) (string, error) {
+	for i, candidate := range candidates {
+		slog.Debug("Trying pipeline candidate", "slug", candidate.Slug, "score", candidate.Score, "attempt", i+1, "total", len(candidates))
+		_, err := getLatestBuild(ctx, client, orgName, candidate.Slug, branch)
+		if err == nil {
+			slog.Debug("Found builds for pipeline", "slug", candidate.Slug)
+			return candidate.Slug, nil
+		}
+		if err != errNoBuilds {
+			// For non-"no builds" errors, continue to next candidate
+			slog.Debug("Non-build error for candidate", "slug", candidate.Slug, "err", err)
+			continue
+		}
+		slog.Debug("No builds found for candidate", "slug", candidate.Slug)
+	}
+	return "", fmt.Errorf("no pipeline candidates have builds for branch %s", branch)
 }
 
 func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string, numOutputLines int) error {
@@ -614,11 +681,26 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 	_, err = getLatestBuild(ctx, client, orgName, slug, branch)
 	if err != nil {
 		if berr, ok := err.(*buildkite.Error); ok && berr.StatusCode == 404 {
-			pipelineSlug, err := findPipelineSlug(ctx, client, orgName, slug)
+			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
 			if err != nil {
 				return err
 			}
-			slug = pipelineSlug
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch)
+			if err != nil {
+				return err
+			}
+			slug = foundSlug
+		} else if err == errNoBuilds {
+			// If original slug has no builds, try candidates
+			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+			if err != nil {
+				return err
+			}
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch)
+			if err != nil {
+				return err
+			}
+			slug = foundSlug
 		} else {
 			fmt.Printf("latest build at top of doWait err: %v\n", err)
 			return err
