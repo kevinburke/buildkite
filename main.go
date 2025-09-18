@@ -102,7 +102,11 @@ branch to wait for.
 	gitRemote := remote.Path
 	org, ok := cfg.OrgForRemote(gitRemote)
 	if !ok {
-		checkError(fmt.Errorf("could not find a Buildkite org for remote %q", gitRemote), "")
+		// checkError(fmt.Errorf("could not find a Buildkite org for remote %q", gitRemote), "")
+		slog.Warn("could not find a Buildkite org for remote", "remote", gitRemote)
+		org = buildkite.Organization{
+			Name: gitRemote,
+		}
 	}
 	client, err := newClient(cfg, gitRemote)
 	if err != nil {
@@ -136,7 +140,11 @@ func checkError(err error, msg string) {
 }
 
 func failError(err error, msg string) {
-	fmt.Fprintf(os.Stderr, "Error %s: %v\n", msg, err)
+	if msg == "" {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "Error %s: %v\n", msg, err)
+	}
 	os.Exit(1)
 }
 
@@ -469,17 +477,6 @@ type Result struct {
 type ScoredSlug struct {
 	Slug  string
 	Score int
-}
-
-func findPipelineSlug(ctx context.Context, client *buildkite.Client, orgName, slug string) (string, error) {
-	candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
-	if err != nil {
-		return "", err
-	}
-	if len(candidates) == 0 {
-		return "", fmt.Errorf("could not find pipeline slug for %q", slug)
-	}
-	return candidates[0].Slug, nil
 }
 
 func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName, slug string) ([]ScoredSlug, error) {

@@ -1,4 +1,6 @@
 test:
+	staticcheck ./... || true
+	go vet ./... || true
 	go test -trimpath ./...
 
 release:

@@ -45,8 +45,7 @@ func getCfgPath() (string, error) {
 		return localPath, nil
 	}
 
-	return "", //lint:ignore ST1005 this shows up in public facing error.
-		fmt.Errorf(`Couldn't find a config file in %s.
+	msg := fmt.Sprintf(`Couldn't find a config file in %s.
 
 Add a configuration file with your Buildkite token, like this:
 
@@ -58,4 +57,5 @@ Add a configuration file with your Buildkite token, like this:
 
 Go to https://buildkite.com/user/api-access-tokens if you need to find your token.
 `, strings.Join(checkedLocations, " or "))
+	return "", errors.New(msg)
 }

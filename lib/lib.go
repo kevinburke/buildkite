@@ -252,7 +252,7 @@ func GetToken(ctx context.Context, org string) (string, error) {
 	return cfg.Token(org)
 }
 
-var postCommandHookRe = regexp.MustCompile(`~~~ Running (global|local|plugin) post-command hook`)
+var postCommandHookRe = regexp.MustCompile(`~~~ Running (repository|global|local|plugin) post-command hook`)
 var runCommandRe = regexp.MustCompile(`~~~ Running (global command|local command|plugin command|command|commands|script|batch script)\b`)
 
 // FindBuildFailure will attempt to find the most "interesting" part of the log,
@@ -267,14 +267,18 @@ func FindBuildFailure(log []byte, numOutputLines int) []byte {
 	}
 	idxMatch := postCommandHookRe.FindIndex(log)
 	if idxMatch == nil {
-		newlineIdx := 0
+		// No post-command hook found, so return the last numOutputLines
+		// Start from the end and work backwards
+		newlineIdx := len(log)
 		for count := 0; count < numOutputLines; count++ {
-			newlineIdx = newlineIdx + 1 + bytes.IndexByte(log[newlineIdx+1:], '\n')
-			if newlineIdx == -1 {
+			prevNewlineIdx := bytes.LastIndexByte(log[:newlineIdx-1], '\n')
+			if prevNewlineIdx == -1 {
+				// We've reached the beginning of the log
 				return log
 			}
+			newlineIdx = prevNewlineIdx + 1
 		}
-		return log[:newlineIdx]
+		return log[newlineIdx:]
 	}
 	idx := idxMatch[0]
 	// find the last N lines; stop when we get to "~~~ Running script"
