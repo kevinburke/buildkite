@@ -80,6 +80,7 @@ branch to wait for.
 `)
 		waitflags.PrintDefaults()
 	}
+	openRemote := openflags.String("remote", "origin", "Git remote to use")
 	debug := flag.Bool("debug", false, "Enable the debug log level")
 	flag.Parse()
 	if *debug {
@@ -97,27 +98,29 @@ branch to wait for.
 	}
 	cfg, err := buildkite.LoadConfig(ctx)
 	checkError(err, "loading buildkite config")
-	remote, err := git.GetRemoteURL(*waitRemote)
-	checkError(err, "loading git info")
-	gitRemote := remote.Path
-	org, ok := cfg.OrgForRemote(gitRemote)
-	if !ok {
-		// checkError(fmt.Errorf("could not find a Buildkite org for remote %q", gitRemote), "")
-		slog.Warn("could not find a Buildkite org for remote", "remote", gitRemote)
-		org = buildkite.Organization{
-			Name: gitRemote,
-		}
-	}
-	client, err := newClient(cfg, gitRemote)
-	if err != nil {
-		checkError(err, "creating Buildkite client")
-	}
+
 	switch flag.Arg(0) {
 	case "wait":
 		waitflags.Parse(subargs)
 		args := waitflags.Args()
 		branch, err := getBranchFromArgs(ctx, args)
 		checkError(err, "getting git branch")
+
+		remote, err := git.GetRemoteURL(*waitRemote)
+		checkError(err, "loading git info")
+		gitRemote := remote.Path
+		org, ok := cfg.OrgForRemote(gitRemote)
+		if !ok {
+			slog.Warn("could not find a Buildkite org for remote", "remote", gitRemote)
+			org = buildkite.Organization{
+				Name: gitRemote,
+			}
+		}
+		client, err := newClient(cfg, gitRemote)
+		if err != nil {
+			checkError(err, "creating Buildkite client")
+		}
+
 		err = doWait(ctx, client, org, remote, branch, *waitOutputLines)
 		checkError(err, "waiting for branch")
 	case "open":
@@ -125,6 +128,22 @@ branch to wait for.
 		args := openflags.Args()
 		branch, err := getBranchFromArgs(ctx, args)
 		checkError(err, "getting git branch")
+
+		remote, err := git.GetRemoteURL(*openRemote)
+		checkError(err, "loading git info")
+		gitRemote := remote.Path
+		org, ok := cfg.OrgForRemote(gitRemote)
+		if !ok {
+			slog.Warn("could not find a Buildkite org for remote", "remote", gitRemote)
+			org = buildkite.Organization{
+				Name: gitRemote,
+			}
+		}
+		client, err := newClient(cfg, gitRemote)
+		if err != nil {
+			checkError(err, "creating Buildkite client")
+		}
+
 		checkError(doOpen(ctx, openflags, client, org, remote, branch), "opening build")
 	default:
 		fmt.Fprintf(os.Stderr, "buildkite: unknown command %q\n\n", flag.Arg(0))
