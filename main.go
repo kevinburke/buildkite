@@ -70,6 +70,7 @@ func main() {
 	openflags := flag.NewFlagSet("open", flag.ExitOnError)
 	waitRemote := waitflags.String("remote", "origin", "Git remote to use")
 	waitOutputLines := waitflags.Int("failed-output-lines", 100, "Number of lines of failed output to display")
+	waitQuiet := waitflags.Bool("quiet", false, "Suppress 'Build running' output")
 	waitflags.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: wait [refspec]
 
@@ -121,7 +122,7 @@ branch to wait for.
 			checkError(err, "creating Buildkite client")
 		}
 
-		err = doWait(ctx, client, org, remote, branch, *waitOutputLines)
+		err = doWait(ctx, client, org, remote, branch, *waitOutputLines, *waitQuiet)
 		checkError(err, "waiting for branch")
 	case "open":
 		openflags.Parse(subargs)
@@ -687,7 +688,7 @@ func tryPipelineCandidates(ctx context.Context, client *buildkite.Client, orgNam
 	return "", fmt.Errorf("no pipeline candidates have builds for branch %s", branch)
 }
 
-func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string, numOutputLines int) error {
+func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string, numOutputLines int, quiet bool) error {
 	tip, err := git.Tip(branch)
 	if err != nil {
 		return err
@@ -723,7 +724,9 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 		}
 	}
 
-	fmt.Println("Waiting for latest build on", branch, "to complete")
+	if !quiet {
+		fmt.Println("Waiting for latest build on", branch, "to complete")
+	}
 	var lastPrintedAt time.Time
 	var previousBuild *buildkite.Build
 	builds, err := getBuilds(ctx, client, orgName, slug, branch)
@@ -736,11 +739,14 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 		}
 	}
 	done := false
+	var printedBuildNumber bool
 	for !done {
 		latestBuild, err := getLatestBuild(ctx, client, orgName, slug, branch)
 		if err != nil {
 			if isHttpError(err) {
-				fmt.Printf("Caught network error: %s. Continuing\n", err.Error())
+				if !quiet {
+					fmt.Printf("Caught network error: %s. Continuing\n", err.Error())
+				}
 				lastPrintedAt = time.Now()
 				select {
 				case <-ctx.Done():
@@ -757,8 +763,10 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			return err
 		}
 		if latestBuild.Commit != tip {
-			fmt.Printf("Latest build in Buildkite is %s, waiting for %s...\n",
-				latestBuild.Commit, tip)
+			if !quiet {
+				fmt.Printf("Latest build in Buildkite is %s, waiting for %s...\n",
+					latestBuild.Commit, tip)
+			}
 			lastPrintedAt = time.Now()
 			select {
 			case <-ctx.Done():
@@ -766,6 +774,11 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			case <-time.After(5 * time.Second):
 			}
 			continue
+		}
+		// In quiet mode, print build number and waiting message once
+		if quiet && !printedBuildNumber {
+			fmt.Printf("Waiting for build %d to complete\n", latestBuild.Number)
+			printedBuildNumber = true
 		}
 		var duration time.Duration
 		if latestBuild.FinishedAt.Valid {
@@ -827,7 +840,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 		case "running":
 			// Show more and more output as we approach the duration of the previous
 			// successful build.
-			if shouldPrint(lastPrintedAt, duration, latestBuild, previousBuild) {
+			if !quiet && shouldPrint(lastPrintedAt, duration, latestBuild, previousBuild) {
 				fmt.Printf("Build %d running (%s elapsed)\n", latestBuild.Number, duration.String())
 				lastPrintedAt = time.Now()
 			}
@@ -837,7 +850,9 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 					fmt.Printf("latest build: %#v\n", latestBuild)
 				}
 			*/
-			fmt.Printf("State is %s, trying again\n", latestBuild.State)
+			if !quiet {
+				fmt.Printf("State is %s, trying again\n", latestBuild.State)
+			}
 			lastPrintedAt = time.Now()
 		}
 		select {
