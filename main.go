@@ -74,6 +74,7 @@ func main() {
 	cancelflags := flag.NewFlagSet("cancel", flag.ExitOnError)
 	waitRemote := waitflags.String("remote", "origin", "Git remote to use")
 	waitOutputLines := waitflags.Int("failed-output-lines", 100, "Number of lines of failed output to display")
+	waitQuiet := waitflags.Bool("quiet", false, "Reduce progress output while waiting for a build")
 	waitflags.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: wait [refspec]
 
@@ -148,7 +149,7 @@ and commit. Use --build-number to rebuild a specific build.
 			checkError(err, "creating Buildkite client")
 		}
 
-		err = doWait(ctx, client, org, remote, branch, *waitOutputLines)
+		err = doWait(ctx, client, org, remote, branch, *waitOutputLines, *waitQuiet)
 		checkError(err, "waiting for branch")
 	case "open":
 		openflags.Parse(subargs)
@@ -933,7 +934,7 @@ func tryPipelineCandidates(ctx context.Context, client *buildkite.Client, orgNam
 	return "", fmt.Errorf("no pipeline candidates have builds for branch %s with commit %s", branch, commit)
 }
 
-func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *RemoteURL, branch string, numOutputLines int) error {
+func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *RemoteURL, branch string, numOutputLines int, quiet bool) error {
 	tip, err := gitTip(branch)
 	if err != nil {
 		return err
@@ -969,7 +970,9 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 		}
 	}
 
-	fmt.Println("Waiting for latest build on", branch, "to complete")
+	if !quiet {
+		fmt.Println("Waiting for latest build on", branch, "to complete")
+	}
 	var lastPrintedAt time.Time
 	var previousBuild *buildkite.Build
 	builds, err := getBuilds(ctx, client, orgName, slug, branch, 3)
@@ -996,6 +999,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 	}
 	var networkErrorStartedAt time.Time
 	done := false
+	var printedBuildNumber bool
 	for !done {
 		latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
 		if err != nil {
@@ -1009,8 +1013,10 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 					return fmt.Errorf("network errors persisted for %s (tolerance: %s): %w",
 						networkErrorDuration, networkErrorTolerance, err)
 				}
-				fmt.Printf("Caught network error: %s (retrying for %s, tolerance %s)\n",
-					err.Error(), networkErrorDuration, networkErrorTolerance)
+				if !quiet {
+					fmt.Printf("Caught network error: %s (retrying for %s, tolerance %s)\n",
+						err.Error(), networkErrorDuration, networkErrorTolerance)
+				}
 				lastPrintedAt = now
 				select {
 				case <-ctx.Done():
@@ -1029,8 +1035,10 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 		// Request succeeded, reset network error tracking
 		networkErrorStartedAt = time.Time{}
 		if latestBuild.Commit != tip {
-			fmt.Printf("Latest build in Buildkite is %s, waiting for %s...\n",
-				latestBuild.Commit, tip)
+			if !quiet {
+				fmt.Printf("Latest build in Buildkite is %s, waiting for %s...\n",
+					latestBuild.Commit, tip)
+			}
 			lastPrintedAt = time.Now()
 			select {
 			case <-ctx.Done():
@@ -1038,6 +1046,11 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			case <-time.After(5 * time.Second):
 			}
 			continue
+		}
+		// In quiet mode, print a single progress line once we know the build number.
+		if quiet && !printedBuildNumber {
+			fmt.Printf("Waiting for build %d to complete\n", latestBuild.Number)
+			printedBuildNumber = true
 		}
 		var duration time.Duration
 		if latestBuild.FinishedAt.Valid {
@@ -1100,13 +1113,13 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 		case "running":
 			// Show more and more output as we approach the duration of the previous
 			// successful build.
-			if shouldPrint(lastPrintedAt, duration, latestBuild, previousBuild) {
+			if !quiet && shouldPrint(lastPrintedAt, duration, latestBuild, previousBuild) {
 				fmt.Printf("Build %d running (%s elapsed)\n", latestBuild.Number, duration.String())
 				lastPrintedAt = time.Now()
 			}
 		default:
 			waitDuration := time.Since(latestBuild.CreatedAt).Round(time.Second)
-			if shouldPrint(lastPrintedAt, duration, latestBuild, previousBuild) {
+			if !quiet && shouldPrint(lastPrintedAt, duration, latestBuild, previousBuild) {
 				fmt.Printf("State is %s (%s elapsed), trying again\n", latestBuild.State, waitDuration)
 				lastPrintedAt = time.Now()
 			}
