@@ -1,9 +1,13 @@
+// Package glamour lets you render markdown documents & templates on ANSI
+// compatible terminals. You can create your own stylesheet or simply use one of
+// the stylish defaults
 package glamour
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/muesli/termenv"
@@ -13,19 +17,10 @@ import (
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/util"
+	"golang.org/x/term"
 
 	"github.com/charmbracelet/glamour/ansi"
-)
-
-// Default styles.
-const (
-	AsciiStyle   = "ascii"
-	AutoStyle    = "auto"
-	DarkStyle    = "dark"
-	DraculaStyle = "dracula"
-	LightStyle   = "light"
-	NoTTYStyle   = "notty"
-	PinkStyle    = "pink"
+	styles "github.com/charmbracelet/glamour/styles"
 )
 
 const (
@@ -137,7 +132,7 @@ func WithStandardStyle(style string) TermRendererOption {
 // WithAutoStyle sets a TermRenderer's styles with either the standard dark
 // or light style, depending on the terminal's background color at run-time.
 func WithAutoStyle() TermRendererOption {
-	return WithStandardStyle(AutoStyle)
+	return WithStandardStyle(styles.AutoStyle)
 }
 
 // WithEnvironmentConfig sets a TermRenderer's styles based on the
@@ -155,7 +150,7 @@ func WithStylePath(stylePath string) TermRendererOption {
 		if err != nil {
 			jsonBytes, err := os.ReadFile(stylePath)
 			if err != nil {
-				return err
+				return fmt.Errorf("glamour: error reading file: %w", err)
 			}
 
 			return json.Unmarshal(jsonBytes, &tr.ansiOptions.Styles)
@@ -186,7 +181,7 @@ func WithStylesFromJSONFile(filename string) TermRendererOption {
 	return func(tr *TermRenderer) error {
 		jsonBytes, err := os.ReadFile(filename)
 		if err != nil {
-			return err
+			return fmt.Errorf("glamour: error reading file: %w", err)
 		}
 		return json.Unmarshal(jsonBytes, &tr.ansiOptions.Styles)
 	}
@@ -200,7 +195,26 @@ func WithWordWrap(wordWrap int) TermRendererOption {
 	}
 }
 
-// WithPreservedNewlines preserves newlines from being replaced.
+// WithTableWrap controls whether table content will wrap if too long.
+// This is true by default. If false, table content will be truncated with an
+// ellipsis if too long to fit.
+func WithTableWrap(tableWrap bool) TermRendererOption {
+	return func(tr *TermRenderer) error {
+		tr.ansiOptions.TableWrap = &tableWrap
+		return nil
+	}
+}
+
+// WithInlineTableLinks forces tables to render links inline. By default,links
+// are rendered as a list of links at the bottom of the table.
+func WithInlineTableLinks(inlineTableLinks bool) TermRendererOption {
+	return func(tr *TermRenderer) error {
+		tr.ansiOptions.InlineTableLinks = inlineTableLinks
+		return nil
+	}
+}
+
+// WithPreservedNewLines preserves newlines from being replaced.
 func WithPreservedNewLines() TermRendererOption {
 	return func(tr *TermRenderer) error {
 		tr.ansiOptions.PreserveNewLines = true
@@ -216,12 +230,43 @@ func WithEmoji() TermRendererOption {
 	}
 }
 
+// WithChromaFormatter sets a TermRenderer's chroma formatter used for code blocks.
+func WithChromaFormatter(formatter string) TermRendererOption {
+	return func(tr *TermRenderer) error {
+		tr.ansiOptions.ChromaFormatter = formatter
+		return nil
+	}
+}
+
+// WithOptions sets multiple TermRenderer options within a single TermRendererOption.
+func WithOptions(options ...TermRendererOption) TermRendererOption {
+	return func(tr *TermRenderer) error {
+		for _, o := range options {
+			if err := o(tr); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
 func (tr *TermRenderer) Read(b []byte) (int, error) {
-	return tr.renderBuf.Read(b)
+	n, err := tr.renderBuf.Read(b)
+	if err == io.EOF {
+		return n, io.EOF
+	}
+	if err != nil {
+		return 0, fmt.Errorf("glamour: error reading from buffer: %w", err)
+	}
+	return n, nil
 }
 
 func (tr *TermRenderer) Write(b []byte) (int, error) {
-	return tr.buf.Write(b)
+	n, err := tr.buf.Write(b)
+	if err != nil {
+		return 0, fmt.Errorf("glamour: error writing bytes: %w", err)
+	}
+	return n, nil
 }
 
 // Close must be called after writing to TermRenderer. You can then retrieve
@@ -229,7 +274,7 @@ func (tr *TermRenderer) Write(b []byte) (int, error) {
 func (tr *TermRenderer) Close() error {
 	err := tr.md.Convert(tr.buf.Bytes(), &tr.renderBuf)
 	if err != nil {
-		return err
+		return fmt.Errorf("glamour: error converting markdown: %w", err)
 	}
 
 	tr.buf.Reset()
@@ -252,21 +297,24 @@ func (tr *TermRenderer) RenderBytes(in []byte) ([]byte, error) {
 func getEnvironmentStyle() string {
 	glamourStyle := os.Getenv("GLAMOUR_STYLE")
 	if len(glamourStyle) == 0 {
-		glamourStyle = AutoStyle
+		glamourStyle = styles.AutoStyle
 	}
 
 	return glamourStyle
 }
 
 func getDefaultStyle(style string) (*ansi.StyleConfig, error) {
-	if style == AutoStyle {
-		if termenv.HasDarkBackground() {
-			return &DarkStyleConfig, nil
+	if style == styles.AutoStyle {
+		if !term.IsTerminal(int(os.Stdout.Fd())) {
+			return &styles.NoTTYStyleConfig, nil
 		}
-		return &LightStyleConfig, nil
+		if termenv.HasDarkBackground() {
+			return &styles.DarkStyleConfig, nil
+		}
+		return &styles.LightStyleConfig, nil
 	}
 
-	styles, ok := DefaultStyles[style]
+	styles, ok := styles.DefaultStyles[style]
 	if !ok {
 		return nil, fmt.Errorf("%s: style not found", style)
 	}
