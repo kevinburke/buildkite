@@ -1,9 +1,14 @@
 env:
-  PATH: /Users/kevinburke/bin:/Users/kevinburke/go/bin:$PATH
-  BUILDKITE_GOLANG_IMPORT_PATH: "github.com/kevinburke/buildkite"
   TZ: UTC
+  GO111MODULE: "on"
+  GO_VERSION: "1.25.3"
 
 steps:
-- label: test
-  commands: |
-    cd "\$WORKING_DIRECTORY" && make test
+  - label: ":golang: Test"
+    commands:
+      - "source .buildkite/setup-go.sh"
+      - "go fmt ./..."
+      - "go vet ./..."
+      - "go run honnef.co/go/tools/cmd/staticcheck@latest ./..."
+      - "go test -trimpath -race -cover ./..."
+      - "go build -trimpath ./..."
