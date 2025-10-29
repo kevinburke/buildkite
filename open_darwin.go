@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"strings"
 
 	buildkite "github.com/kevinburke/buildkite/lib"
 )
@@ -17,15 +18,21 @@ func runCmd(prog string, args ...string) error {
 }
 
 func openURL(org buildkite.Organization, url string) error {
-	// open -a "Google Chrome" --args --profile-directory="Profile 4" --new-tab "https://example.com"
 	args := []string{}
 	if org.BrowserApplication != "" {
-		// "-n" == "new instance"
-		args = append(args, "-na", org.BrowserApplication)
-		args = append(args, "--args")
+		browserLower := strings.ToLower(org.BrowserApplication)
 
-		if org.BrowserProfile != "" {
-			args = append(args, "--profile-directory="+org.BrowserProfile)
+		if strings.Contains(browserLower, "firefox") && org.BrowserProfile != "" {
+			// Firefox with profile: open -n -a "Firefox" --args -no-remote -P "profile-name" -new-tab "url"
+			args = append(args, "-n", "-a", org.BrowserApplication)
+			args = append(args, "--args", "-no-remote", "-P", org.BrowserProfile, "-new-tab")
+		} else if org.BrowserProfile != "" {
+			// Chrome-like browsers with profile: open -na "Chrome" --args --profile-directory="Profile" --new-tab "url"
+			args = append(args, "-na", org.BrowserApplication)
+			args = append(args, "--args", "--profile-directory="+org.BrowserProfile, "--new-tab")
+		} else {
+			// Just browser application, no profile
+			args = append(args, "-a", org.BrowserApplication)
 		}
 	}
 	args = append(args, url)

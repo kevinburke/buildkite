@@ -291,7 +291,11 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 		if err != nil {
 			if isHttpError(err) {
 				fmt.Printf("Caught network error: %s. Continuing\n", err.Error())
-				time.Sleep(2 * time.Second)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(2 * time.Second):
+				}
 				continue
 			}
 			if err == errNoBuilds {
