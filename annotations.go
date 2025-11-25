@@ -3,8 +3,10 @@ package main
 import (
 	"os"
 
-	md "github.com/JohannesKaufmann/html-to-markdown"
-	"github.com/JohannesKaufmann/html-to-markdown/plugin"
+	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
+	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/base"
+	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/commonmark"
+	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/table"
 	"github.com/charmbracelet/glamour"
 	buildkite "github.com/kevinburke/buildkite/lib"
 	"golang.org/x/term"
@@ -31,10 +33,15 @@ func getANSIAnnotations(annotations buildkite.AnnotationResponse) ([]string, err
 		return nil, err
 	}
 	var messages []string
-	converter := md.NewConverter("", true, nil)
-	converter.Use(plugin.Table())
+	conv := converter.NewConverter(
+		converter.WithPlugins(
+			base.NewBasePlugin(),
+			commonmark.NewCommonmarkPlugin(),
+			table.NewTablePlugin(),
+		),
+	)
 	for _, annotation := range annotations {
-		content, err := converter.ConvertString(annotation.BodyHTML)
+		content, err := conv.ConvertString(annotation.BodyHTML)
 		if err != nil {
 			return nil, err
 		}

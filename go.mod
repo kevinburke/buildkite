@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/BurntSushi/toml v1.5.0
-	github.com/JohannesKaufmann/html-to-markdown v1.6.0
+	github.com/JohannesKaufmann/html-to-markdown/v2 v2.4.0
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/kevinburke/bigtext v0.0.0-20220519224329-c26d116ded71
 	github.com/kevinburke/go-git v0.11.1
@@ -14,9 +14,8 @@ require (
 )
 
 require (
-	github.com/PuerkitoBio/goquery v1.10.3 // indirect
+	github.com/JohannesKaufmann/dom v0.2.0 // indirect
 	github.com/alecthomas/chroma/v2 v2.20.0 // indirect
-	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/andybrewer/mack v0.0.0-20251024001139-afd410b36447 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
@@ -43,5 +42,4 @@ require (
 	golang.org/x/net v0.46.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
