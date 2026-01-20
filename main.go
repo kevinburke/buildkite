@@ -39,7 +39,9 @@ Usage:
 
 The commands are:
 
+	cancel              Cancel the running build
 	open                Open the running build in your browser
+	rebuild             Rebuild a build
 	version             Print the current version
 	wait                Wait for tests to finish on a branch.
 
@@ -68,6 +70,7 @@ func main() {
 	defer cancel()
 	waitflags := flag.NewFlagSet("wait", flag.ExitOnError)
 	openflags := flag.NewFlagSet("open", flag.ExitOnError)
+	cancelflags := flag.NewFlagSet("cancel", flag.ExitOnError)
 	waitRemote := waitflags.String("remote", "origin", "Git remote to use")
 	waitOutputLines := waitflags.Int("failed-output-lines", 100, "Number of lines of failed output to display")
 	waitflags.Usage = func() {
@@ -81,6 +84,29 @@ branch to wait for.
 		waitflags.PrintDefaults()
 	}
 	openRemote := openflags.String("remote", "origin", "Git remote to use")
+	cancelRemote := cancelflags.String("remote", "origin", "Git remote to use")
+	cancelBuildNumber := cancelflags.Int64("build-number", 0, "Build number to cancel (if not specified, cancels the latest build for the current commit)")
+	cancelflags.Usage = func() {
+		fmt.Fprintf(os.Stderr, `usage: cancel [--build-number N] [refspec]
+
+Cancel a running build. By default, cancels the build for the current branch
+and commit. Use --build-number to cancel a specific build.
+
+`)
+		cancelflags.PrintDefaults()
+	}
+	rebuildflags := flag.NewFlagSet("rebuild", flag.ExitOnError)
+	rebuildRemote := rebuildflags.String("remote", "origin", "Git remote to use")
+	rebuildBuildNumber := rebuildflags.Int64("build-number", 0, "Build number to rebuild (if not specified, rebuilds the latest build for the current commit)")
+	rebuildflags.Usage = func() {
+		fmt.Fprintf(os.Stderr, `usage: rebuild [--build-number N] [refspec]
+
+Rebuild a build. By default, rebuilds the latest build for the current branch
+and commit. Use --build-number to rebuild a specific build.
+
+`)
+		rebuildflags.PrintDefaults()
+	}
 	debug := flag.Bool("debug", false, "Enable the debug log level")
 	flag.Parse()
 	if *debug {
@@ -145,6 +171,50 @@ branch to wait for.
 		}
 
 		checkError(doOpen(ctx, openflags, client, org, remote, branch), "opening build")
+	case "cancel":
+		cancelflags.Parse(subargs)
+		args := cancelflags.Args()
+		branch, err := getBranchFromArgs(ctx, args)
+		checkError(err, "getting git branch")
+
+		remote, err := git.GetRemoteURL(*cancelRemote)
+		checkError(err, "loading git info")
+		gitRemote := remote.Path
+		org, ok := cfg.OrgForRemote(gitRemote)
+		if !ok {
+			slog.Warn("could not find a Buildkite org for remote", "remote", gitRemote)
+			org = buildkite.Organization{
+				Name: gitRemote,
+			}
+		}
+		client, err := newClient(cfg, gitRemote)
+		if err != nil {
+			checkError(err, "creating Buildkite client")
+		}
+
+		checkError(doCancel(ctx, client, org, remote, branch, *cancelBuildNumber), "canceling build")
+	case "rebuild":
+		rebuildflags.Parse(subargs)
+		args := rebuildflags.Args()
+		branch, err := getBranchFromArgs(ctx, args)
+		checkError(err, "getting git branch")
+
+		remote, err := git.GetRemoteURL(*rebuildRemote)
+		checkError(err, "loading git info")
+		gitRemote := remote.Path
+		org, ok := cfg.OrgForRemote(gitRemote)
+		if !ok {
+			slog.Warn("could not find a Buildkite org for remote", "remote", gitRemote)
+			org = buildkite.Organization{
+				Name: gitRemote,
+			}
+		}
+		client, err := newClient(cfg, gitRemote)
+		if err != nil {
+			checkError(err, "creating Buildkite client")
+		}
+
+		checkError(doRebuild(ctx, client, org, remote, branch, *rebuildBuildNumber), "rebuilding build")
 	default:
 		fmt.Fprintf(os.Stderr, "buildkite: unknown command %q\n\n", flag.Arg(0))
 		usage()
@@ -347,6 +417,136 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 		}
 		return nil
 	}
+}
+
+func doCancel(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string, buildNumber int64) error {
+	orgName, slug := org.Name, remote.RepoName
+
+	// If a specific build number was provided, cancel that build directly
+	if buildNumber > 0 {
+		return cancelBuild(ctx, client, orgName, slug, buildNumber)
+	}
+
+	// Otherwise, find the build for the current commit
+	tip, err := git.Tip(branch)
+	if err != nil {
+		return err
+	}
+
+	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+	if err != nil {
+		if berr, ok := err.(*buildkite.Error); ok && berr.StatusCode == 404 {
+			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+			if err != nil {
+				return err
+			}
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
+			if err != nil {
+				return err
+			}
+			slug = foundSlug
+		} else if err == errNoBuilds {
+			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+			if err != nil {
+				return err
+			}
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
+			if err != nil {
+				return err
+			}
+			slug = foundSlug
+		} else {
+			return err
+		}
+	}
+
+	latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+	if err != nil {
+		if err == errNoBuilds {
+			return fmt.Errorf("no builds found for %s/%s on branch %s", remote.Path, remote.RepoName, branch)
+		}
+		return err
+	}
+
+	return cancelBuild(ctx, client, orgName, slug, latestBuild.Number)
+}
+
+func cancelBuild(ctx context.Context, client *buildkite.Client, org, pipeline string, buildNumber int64) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	build, err := client.Organization(org).Pipeline(pipeline).Build(buildNumber).Cancel(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to cancel build %d: %w", buildNumber, err)
+	}
+	fmt.Printf("Canceled build %d (state: %s)\n", build.Number, build.State)
+	fmt.Printf("URL: %s\n", build.WebURL)
+	return nil
+}
+
+func doRebuild(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string, buildNumber int64) error {
+	orgName, slug := org.Name, remote.RepoName
+
+	// If a specific build number was provided, rebuild that build directly
+	if buildNumber > 0 {
+		return rebuildBuild(ctx, client, orgName, slug, buildNumber)
+	}
+
+	// Otherwise, find the build for the current commit
+	tip, err := git.Tip(branch)
+	if err != nil {
+		return err
+	}
+
+	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+	if err != nil {
+		if berr, ok := err.(*buildkite.Error); ok && berr.StatusCode == 404 {
+			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+			if err != nil {
+				return err
+			}
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
+			if err != nil {
+				return err
+			}
+			slug = foundSlug
+		} else if err == errNoBuilds {
+			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+			if err != nil {
+				return err
+			}
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
+			if err != nil {
+				return err
+			}
+			slug = foundSlug
+		} else {
+			return err
+		}
+	}
+
+	latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+	if err != nil {
+		if err == errNoBuilds {
+			return fmt.Errorf("no builds found for %s/%s on branch %s", remote.Path, remote.RepoName, branch)
+		}
+		return err
+	}
+
+	return rebuildBuild(ctx, client, orgName, slug, latestBuild.Number)
+}
+
+func rebuildBuild(ctx context.Context, client *buildkite.Client, org, pipeline string, buildNumber int64) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	build, err := client.Organization(org).Pipeline(pipeline).Build(buildNumber).Rebuild(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to rebuild build %d: %w", buildNumber, err)
+	}
+	fmt.Printf("Rebuilt build %d -> new build %d (state: %s)\n", buildNumber, build.Number, build.State)
+	fmt.Printf("URL: %s\n", build.WebURL)
+	return nil
 }
 
 // this just turns everything into e.g. github.com/user/repo stripping leading

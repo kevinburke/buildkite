@@ -352,6 +352,22 @@ func (b *BuildService) Annotations(ctx context.Context, query url.Values) (Annot
 	return val, err
 }
 
+// Cancel cancels the build. Returns the updated Build on success.
+func (b *BuildService) Cancel(ctx context.Context) (Build, error) {
+	path := b.Path() + "/cancel"
+	var val Build
+	err := b.client.MakeRequest(ctx, "PUT", path, nil, &val)
+	return val, err
+}
+
+// Rebuild triggers a rebuild of the build. Returns the newly created Build.
+func (b *BuildService) Rebuild(ctx context.Context) (Build, error) {
+	path := b.Path() + "/rebuild"
+	var val Build
+	err := b.client.MakeRequest(ctx, "PUT", path, nil, &val)
+	return val, err
+}
+
 func (j *JobService) Path() string {
 	return fmt.Sprintf("/organizations/%s/pipelines/%s/builds/%d/jobs/%s",
 		j.org, j.pipeline, j.buildNumber, j.jobID)
