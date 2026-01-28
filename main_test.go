@@ -1,8 +1,14 @@
 package main
 
 import (
+	"errors"
+	"io"
+	"net"
+	"net/url"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestNormalizeRepo(t *testing.T) {
@@ -461,6 +467,104 @@ func TestLevenshteinDistance(t *testing.T) {
 			if result != tt.expected {
 				t.Errorf("levenshteinDistance(%q, %q) = %d, want %d",
 					tt.a, tt.b, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsHttpError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "io.EOF",
+			err:      io.EOF,
+			expected: true,
+		},
+		{
+			name:     "io.ErrUnexpectedEOF",
+			err:      io.ErrUnexpectedEOF,
+			expected: true,
+		},
+		{
+			name:     "wrapped io.EOF",
+			err:      errors.Join(errors.New("read failed"), io.EOF),
+			expected: true,
+		},
+		{
+			name:     "unix.ECONNRESET",
+			err:      unix.ECONNRESET,
+			expected: true,
+		},
+		{
+			name:     "unix.EPIPE",
+			err:      unix.EPIPE,
+			expected: true,
+		},
+		{
+			name:     "wrapped ECONNRESET",
+			err:      errors.Join(errors.New("network failed"), unix.ECONNRESET),
+			expected: true,
+		},
+		{
+			name:     "net.OpError dial tcp",
+			err:      &net.OpError{Op: "dial", Net: "tcp"},
+			expected: true,
+		},
+		{
+			name:     "net.OpError read",
+			err:      &net.OpError{Op: "read", Net: "tcp"},
+			expected: true,
+		},
+		{
+			name:     "net.OpError write",
+			err:      &net.OpError{Op: "write", Net: "tcp"},
+			expected: true,
+		},
+		{
+			name:     "net.OpError unknown op",
+			err:      &net.OpError{Op: "unknown", Net: "tcp"},
+			expected: false,
+		},
+		{
+			name:     "net.DNSError",
+			err:      &net.DNSError{},
+			expected: true,
+		},
+		{
+			name:     "url.Error wrapping io.EOF",
+			err:      &url.Error{Op: "Get", URL: "http://example.com", Err: io.EOF},
+			expected: true,
+		},
+		{
+			name:     "url.Error wrapping ECONNRESET",
+			err:      &url.Error{Op: "Get", URL: "http://example.com", Err: unix.ECONNRESET},
+			expected: true,
+		},
+		{
+			name:     "url.Error wrapping net.OpError dial",
+			err:      &url.Error{Op: "Get", URL: "http://example.com", Err: &net.OpError{Op: "dial", Net: "tcp"}},
+			expected: true,
+		},
+		{
+			name:     "random error",
+			err:      errors.New("something went wrong"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isHttpError(tt.err)
+			if result != tt.expected {
+				t.Errorf("isHttpError(%v) = %v, want %v", tt.err, result, tt.expected)
 			}
 		})
 	}

@@ -17,6 +17,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/url"
@@ -29,6 +30,7 @@ import (
 	"github.com/kevinburke/bigtext"
 	buildkite "github.com/kevinburke/buildkite/lib"
 	git "github.com/kevinburke/go-git"
+	"golang.org/x/sys/unix"
 )
 
 const help = `The buildkite binary interacts with Buildkite CI.
@@ -304,11 +306,27 @@ func isHttpError(err error) bool {
 	if uerr, ok := err.(*url.Error); ok {
 		err = uerr.Err
 	}
+	// Check for EOF errors (connection closed mid-response)
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	// Check for connection reset
+	if errors.Is(err, unix.ECONNRESET) {
+		return true
+	}
+	// Check for broken pipe
+	if errors.Is(err, unix.EPIPE) {
+		return true
+	}
 	switch err := err.(type) {
 	default:
 		return false
 	case *net.OpError:
-		return err.Op == "dial" && err.Net == "tcp"
+		// Expand to catch read/write errors, not just dial
+		if err.Op == "dial" || err.Op == "read" || err.Op == "write" {
+			return true
+		}
+		return false
 	case *net.DNSError:
 		return true
 	// Catchall, this needs to go last.
@@ -383,11 +401,24 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 		}
 	}
 
+	// Default network error tolerance of 5 minutes for the open command
+	networkErrorTolerance := 5 * time.Minute
+	var networkErrorStartedAt time.Time
 	for {
 		latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
 		if err != nil {
 			if isHttpError(err) {
-				fmt.Printf("Caught network error: %s. Continuing\n", err.Error())
+				now := time.Now()
+				if networkErrorStartedAt.IsZero() {
+					networkErrorStartedAt = now
+				}
+				networkErrorDuration := now.Sub(networkErrorStartedAt).Round(time.Second)
+				if networkErrorDuration > networkErrorTolerance {
+					return fmt.Errorf("network errors persisted for %s (tolerance: %s): %w",
+						networkErrorDuration, networkErrorTolerance, err)
+				}
+				fmt.Printf("Caught network error: %s (retrying for %s, tolerance %s)\n",
+					err.Error(), networkErrorDuration, networkErrorTolerance)
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
@@ -402,6 +433,8 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 			}
 			return err
 		}
+		// Request succeeded, reset network error tracking
+		networkErrorStartedAt = time.Time{}
 		if latestBuild.Commit != tip {
 			fmt.Printf("Latest build in Buildkite is %s, waiting for %s...\n",
 				latestBuild.Commit, tip)
@@ -966,13 +999,37 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			}
 		}
 	}
+	// Track network error tolerance based on previous build duration.
+	// We'll wait at least as long as the last successful build took before
+	// giving up on network errors.
+	var networkErrorTolerance time.Duration
+	if previousBuild != nil {
+		networkErrorTolerance = previousBuild.FinishedAt.Time.Sub(previousBuild.StartedAt)
+	}
+	// Minimum tolerance of 5 minutes, max of 30 minutes
+	if networkErrorTolerance < 5*time.Minute {
+		networkErrorTolerance = 5 * time.Minute
+	} else if networkErrorTolerance > 30*time.Minute {
+		networkErrorTolerance = 30 * time.Minute
+	}
+	var networkErrorStartedAt time.Time
 	done := false
 	for !done {
 		latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
 		if err != nil {
 			if isHttpError(err) {
-				fmt.Printf("Caught network error: %s. Continuing\n", err.Error())
-				lastPrintedAt = time.Now()
+				now := time.Now()
+				if networkErrorStartedAt.IsZero() {
+					networkErrorStartedAt = now
+				}
+				networkErrorDuration := now.Sub(networkErrorStartedAt).Round(time.Second)
+				if networkErrorDuration > networkErrorTolerance {
+					return fmt.Errorf("network errors persisted for %s (tolerance: %s): %w",
+						networkErrorDuration, networkErrorTolerance, err)
+				}
+				fmt.Printf("Caught network error: %s (retrying for %s, tolerance %s)\n",
+					err.Error(), networkErrorDuration, networkErrorTolerance)
+				lastPrintedAt = now
 				select {
 				case <-ctx.Done():
 					return err
@@ -987,6 +1044,8 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			}
 			return err
 		}
+		// Request succeeded, reset network error tracking
+		networkErrorStartedAt = time.Time{}
 		if latestBuild.Commit != tip {
 			fmt.Printf("Latest build in Buildkite is %s, waiting for %s...\n",
 				latestBuild.Commit, tip)
