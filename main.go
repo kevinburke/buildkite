@@ -1122,13 +1122,11 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 				lastPrintedAt = time.Now()
 			}
 		default:
-			/*
-				if latestBuild.State == "failing" {
-					fmt.Printf("latest build: %#v\n", latestBuild)
-				}
-			*/
-			fmt.Printf("State is %s, trying again\n", latestBuild.State)
-			lastPrintedAt = time.Now()
+			waitDuration := time.Since(latestBuild.CreatedAt).Round(time.Second)
+			if shouldPrint(lastPrintedAt, duration, latestBuild, previousBuild) {
+				fmt.Printf("State is %s (%s elapsed), trying again\n", latestBuild.State, waitDuration)
+				lastPrintedAt = time.Now()
+			}
 		}
 		select {
 		case <-time.After(3 * time.Second):
