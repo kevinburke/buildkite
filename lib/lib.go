@@ -270,7 +270,7 @@ func FindBuildFailure(log []byte, numOutputLines int) []byte {
 		// No post-command hook found, so return the last numOutputLines
 		// Start from the end and work backwards
 		newlineIdx := len(log)
-		for count := 0; count < numOutputLines; count++ {
+		for range numOutputLines {
 			prevNewlineIdx := bytes.LastIndexByte(log[:newlineIdx-1], '\n')
 			if prevNewlineIdx == -1 {
 				// We've reached the beginning of the log
@@ -283,7 +283,7 @@ func FindBuildFailure(log []byte, numOutputLines int) []byte {
 	idx := idxMatch[0]
 	// find the last N lines; stop when we get to "~~~ Running script"
 	newlineIdx := idx
-	for count := 0; count < numOutputLines; count++ {
+	for range numOutputLines {
 		newIdx := bytes.LastIndexByte(log[:newlineIdx], '\n')
 		if newIdx == -1 {
 			return log[:idx]

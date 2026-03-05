@@ -7,7 +7,6 @@ require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.4.0
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/kevinburke/bigtext v0.0.0-20220519224329-c26d116ded71
-	github.com/kevinburke/go-git v0.11.1
 	github.com/kevinburke/go-types v0.0.0-20240719050749-165e75e768f7
 	github.com/kevinburke/rest v0.0.0-20250718180114-1a15e4f2364f
 	golang.org/x/sys v0.37.0

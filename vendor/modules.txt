@@ -79,9 +79,6 @@ github.com/gorilla/css/scanner
 # github.com/kevinburke/bigtext v0.0.0-20220519224329-c26d116ded71
 ## explicit
 github.com/kevinburke/bigtext
-# github.com/kevinburke/go-git v0.11.1
-## explicit; go 1.21
-github.com/kevinburke/go-git
 # github.com/kevinburke/go-types v0.0.0-20240719050749-165e75e768f7
 ## explicit; go 1.21
 github.com/kevinburke/go-types

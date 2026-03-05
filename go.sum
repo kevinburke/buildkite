@@ -40,16 +40,12 @@ github.com/dlclark/regexp2 v1.11.5 h1:Q/sSnsKerHeCkc/jSTNq1oCm7KiVgUMZRDUoRu0JQZ
 github.com/dlclark/regexp2 v1.11.5/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cnmRbL6yW8=
 github.com/gofrs/uuid v4.4.0+incompatible h1:3qXRTX8/NbyulANqlc0lchS1gqAVxRgsuW1YrTJupqA=
 github.com/gofrs/uuid v4.4.0+incompatible/go.mod h1:b2aQJv3Z4Fp6yNu3cdSllBxTCLRxnplIgP/c0N/04lM=
-github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
-github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
 github.com/gorilla/css v1.0.1 h1:ntNaBIghp6JmvWnxbZKANoLyuXTPZ4cAMlo6RyhlbO8=
 github.com/gorilla/css v1.0.1/go.mod h1:BvnYkspnSzMmwRK+b8/xgNPLiIuNZr6vbZBTPQ2A3b0=
 github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
 github.com/kevinburke/bigtext v0.0.0-20220519224329-c26d116ded71 h1:3oXjNshpzMGtjE3FIDnbM4noU3FAnLfw9iE6nAci2rA=
 github.com/kevinburke/bigtext v0.0.0-20220519224329-c26d116ded71/go.mod h1:SSTLTHEc7/Ab2fjt3WUcTB3VKp0U207/840y65prNfE=
-github.com/kevinburke/go-git v0.11.1 h1:c+KNBxgW+CU88ECT8ujEfJPRuDJjVjaRWD7MTYVxQdQ=
-github.com/kevinburke/go-git v0.11.1/go.mod h1:nIy7UfctIS450v+h+GoR7V32NkjPxbtMrwvWFLyZF5Q=
 github.com/kevinburke/go-types v0.0.0-20240719050749-165e75e768f7 h1:36PMhfw/I1YYAjOOuA66ll5X7NJ8v3cJEqsAxiMv7bE=
 github.com/kevinburke/go-types v0.0.0-20240719050749-165e75e768f7/go.mod h1:8tQOif9eUJLpDnvfDcGtesfv6VpL2UvDbW4l8kXnSDE=
 github.com/kevinburke/rest v0.0.0-20250718180114-1a15e4f2364f h1:y+inhBsY0ewgXFXCXlxodNxkXdYeU9YuneCYQEnRkmw=

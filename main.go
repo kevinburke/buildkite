@@ -29,7 +29,6 @@ import (
 
 	"github.com/kevinburke/bigtext"
 	buildkite "github.com/kevinburke/buildkite/lib"
-	git "github.com/kevinburke/go-git"
 	"golang.org/x/sys/unix"
 )
 
@@ -134,7 +133,7 @@ and commit. Use --build-number to rebuild a specific build.
 		branch, err := getBranchFromArgs(ctx, args)
 		checkError(err, "getting git branch")
 
-		remote, err := git.GetRemoteURL(*waitRemote)
+		remote, err := getRemoteURL(*waitRemote)
 		checkError(err, "loading git info")
 		gitRemote := remote.Path
 		org, ok := cfg.OrgForRemote(gitRemote)
@@ -157,7 +156,7 @@ and commit. Use --build-number to rebuild a specific build.
 		branch, err := getBranchFromArgs(ctx, args)
 		checkError(err, "getting git branch")
 
-		remote, err := git.GetRemoteURL(*openRemote)
+		remote, err := getRemoteURL(*openRemote)
 		checkError(err, "loading git info")
 		gitRemote := remote.Path
 		org, ok := cfg.OrgForRemote(gitRemote)
@@ -179,7 +178,7 @@ and commit. Use --build-number to rebuild a specific build.
 		branch, err := getBranchFromArgs(ctx, args)
 		checkError(err, "getting git branch")
 
-		remote, err := git.GetRemoteURL(*cancelRemote)
+		remote, err := getRemoteURL(*cancelRemote)
 		checkError(err, "loading git info")
 		gitRemote := remote.Path
 		org, ok := cfg.OrgForRemote(gitRemote)
@@ -201,7 +200,7 @@ and commit. Use --build-number to rebuild a specific build.
 		branch, err := getBranchFromArgs(ctx, args)
 		checkError(err, "getting git branch")
 
-		remote, err := git.GetRemoteURL(*rebuildRemote)
+		remote, err := getRemoteURL(*rebuildRemote)
 		checkError(err, "loading git info")
 		gitRemote := remote.Path
 		org, ok := cfg.OrgForRemote(gitRemote)
@@ -365,9 +364,9 @@ func shouldPrint(lastPrinted time.Time, duration time.Duration, latestBuild buil
 	return lastPrinted.Add(durToUse).Before(now)
 }
 
-func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string) error {
+func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, org buildkite.Organization, remote *RemoteURL, branch string) error {
 	_ = flags
-	tip, err := git.Tip(branch)
+	tip, err := gitTip(branch)
 	if err != nil {
 		return err
 	}
@@ -452,7 +451,7 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 	}
 }
 
-func doCancel(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string, buildNumber int64) error {
+func doCancel(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *RemoteURL, branch string, buildNumber int64) error {
 	orgName, slug := org.Name, remote.RepoName
 
 	// If a specific build number was provided, cancel that build directly
@@ -461,7 +460,7 @@ func doCancel(ctx context.Context, client *buildkite.Client, org buildkite.Organ
 	}
 
 	// Otherwise, find the build for the current commit
-	tip, err := git.Tip(branch)
+	tip, err := gitTip(branch)
 	if err != nil {
 		return err
 	}
@@ -517,7 +516,7 @@ func cancelBuild(ctx context.Context, client *buildkite.Client, org, pipeline st
 	return nil
 }
 
-func doRebuild(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string, buildNumber int64) error {
+func doRebuild(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *RemoteURL, branch string, buildNumber int64) error {
 	orgName, slug := org.Name, remote.RepoName
 
 	// If a specific build number was provided, rebuild that build directly
@@ -526,7 +525,7 @@ func doRebuild(ctx context.Context, client *buildkite.Client, org buildkite.Orga
 	}
 
 	// Otherwise, find the build for the current commit
-	tip, err := git.Tip(branch)
+	tip, err := gitTip(branch)
 	if err != nil {
 		return err
 	}
@@ -589,8 +588,8 @@ func normalizeRepo(u string) string {
 	u = strings.TrimSuffix(u, ".git")
 	u = strings.TrimSuffix(u, "/")
 	// git@github.com:foo/bar -> github.com/foo/bar
-	if strings.HasPrefix(u, "git@") {
-		u = strings.TrimPrefix(u, "git@")
+	if after, ok := strings.CutPrefix(u, "git@"); ok {
+		u = after
 		u = strings.Replace(u, ":", "/", 1)
 	}
 	for _, p := range []string{"https://", "http://", "ssh://"} {
@@ -735,20 +734,6 @@ func repoSimilarityScore(orgName, slug, repoURL string) int {
 	return 0 // No meaningful match found
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // Result type to standardize return values
 type Result struct {
 	RequestType string
@@ -840,7 +825,7 @@ func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName, s
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		parameters := map[string]interface{}{
+		parameters := map[string]any{
 			"first": 250,
 		}
 		res := ResultWithCandidates{RequestType: "C"}
@@ -951,8 +936,8 @@ func tryPipelineCandidates(ctx context.Context, client *buildkite.Client, orgNam
 	return "", fmt.Errorf("no pipeline candidates have builds for branch %s with commit %s", branch, commit)
 }
 
-func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *git.RemoteURL, branch string, numOutputLines int) error {
-	tip, err := git.Tip(branch)
+func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *RemoteURL, branch string, numOutputLines int) error {
+	tip, err := gitTip(branch)
 	if err != nil {
 		return err
 	}
@@ -1076,19 +1061,20 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 			}
 			data := client.BuildSummary(ctx, orgName, latestBuild, numOutputLines)
 			os.Stdout.Write(data)
-			output := fmt.Sprintf("\nTests on %s took %s. Quitting.\n", branch, duration.String())
+			var output strings.Builder
+			output.WriteString(fmt.Sprintf("\nTests on %s took %s. Quitting.\n", branch, duration.String()))
 			if latestBuild.PullRequest != nil {
 				// No prefix for the URL so you can click and copy the whole
 				// line easily
-				output += latestBuild.PullRequest.URL() + "\n"
+				output.WriteString(latestBuild.PullRequest.URL() + "\n")
 			}
 			if len(annotationANSI) > 0 {
-				output += "\nAnnotations:\n"
+				output.WriteString("\nAnnotations:\n")
 				for _, annotation := range annotationANSI {
-					output += annotation + "\n"
+					output.WriteString(annotation + "\n")
 				}
 			}
-			fmt.Print(output)
+			fmt.Print(output.String())
 			c.Display(branch + " build complete!")
 			return nil
 		case "failing", "failed":
