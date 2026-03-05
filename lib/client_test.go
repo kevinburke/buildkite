@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -141,5 +142,48 @@ func TestBuildRebuild(t *testing.T) {
 	}
 	if build.State != "scheduled" {
 		t.Errorf("expected state 'scheduled', got %s", build.State)
+	}
+}
+
+func TestListBuildsWithSlashInBranch(t *testing.T) {
+	tests := []struct {
+		name   string
+		branch string
+	}{
+		{"simple slash", "feature/foo"},
+		{"nested slashes", "feature/team/ticket-123"},
+		{"dependabot style", "dependabot/go_modules/golang.org/x/net-0.25.0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotBranch string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotBranch = r.URL.Query().Get("branch")
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode([]Build{
+					{Number: 1, Branch: tt.branch, Commit: "abc123", State: "passed"},
+				})
+			}))
+			defer server.Close()
+
+			client := NewClient("test-token")
+			client.Client.Base = server.URL
+
+			params := url.Values{"branch": []string{tt.branch}}
+			ctx := context.Background()
+			builds, err := client.Organization("org").Pipeline("repo").ListBuilds(ctx, params)
+			if err != nil {
+				t.Fatalf("ListBuilds returned error: %v", err)
+			}
+			if gotBranch != tt.branch {
+				t.Errorf("server received branch %q, want %q", gotBranch, tt.branch)
+			}
+			if len(builds) != 1 {
+				t.Fatalf("got %d builds, want 1", len(builds))
+			}
+			if builds[0].Branch != tt.branch {
+				t.Errorf("build branch = %q, want %q", builds[0].Branch, tt.branch)
+			}
+		})
 	}
 }
