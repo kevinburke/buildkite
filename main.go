@@ -683,10 +683,7 @@ func repoSimilarityScore(orgName, slug, repoURL string) int {
 
 		// Edit distance penalty - closer strings get higher scores (up to 100 points)
 		editDist := levenshteinDistance(userRepo, comparison)
-		maxLen := len(userRepo)
-		if len(comparison) > maxLen {
-			maxLen = len(comparison)
-		}
+		maxLen := max(len(comparison), len(userRepo))
 		if maxLen > 0 {
 			score += max(0, 100-(editDist*100/maxLen))
 		}

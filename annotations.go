@@ -21,10 +21,7 @@ func getTerminalWidth() int {
 }
 
 func getANSIAnnotations(annotations buildkite.AnnotationResponse) ([]string, error) {
-	width := getTerminalWidth()
-	if width > 120 {
-		width = 120
-	}
+	width := min(getTerminalWidth(), 120)
 	renderer, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
 		glamour.WithWordWrap(width),

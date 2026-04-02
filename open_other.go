@@ -2,8 +2,23 @@
 
 package main
 
-import buildkite "github.com/kevinburke/buildkite/lib"
+import (
+	"os"
+	"os/exec"
+	"runtime"
 
-func openURL(org buildkite.Organization, url string) {
-	return browser.Open(url)
+	buildkite "github.com/kevinburke/buildkite/lib"
+)
+
+func openURL(_ buildkite.Organization, url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
