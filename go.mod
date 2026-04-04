@@ -3,7 +3,7 @@ module github.com/kevinburke/buildkite
 go 1.24.0
 
 require (
-	github.com/BurntSushi/toml v1.5.0
+	github.com/BurntSushi/toml v1.6.0
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/kevinburke/bigtext v0.0.0-20220519224329-c26d116ded71
