@@ -96,6 +96,7 @@ Or if you want to open the running build in your browser:
 buildkite open
 ```
 
+
 ##### Configuring browser/browser "profile"
 
 In your config file, add the following flags to specify a browser and

@@ -1,14 +1,26 @@
 env:
   TZ: UTC
-  GO111MODULE: "on"
-  GO_VERSION: "1.25.3"
+  GO_VERSION: "1.26.2"
+  STATICCHECK_VERSION: "v0.7.0"
+  DIFFER_VERSION: "v0.0.0-20260403230520-c0574ebcacb2"
 
 steps:
-  - label: ":golang: Test"
-    commands:
-      - "source .buildkite/setup-go.sh"
-      - "go fmt ./..."
-      - "go vet ./..."
-      - "go run honnef.co/go/tools/cmd/staticcheck@latest ./..."
-      - "go test -trimpath -race -cover ./..."
-      - "go build -trimpath ./..."
+  - label: ":go: Format"
+    key: "format"
+    command: "bash .buildkite/ci.sh format"
+    timeout_in_minutes: 10
+
+  - label: ":go: Lint"
+    key: "lint"
+    command: "bash .buildkite/ci.sh lint"
+    timeout_in_minutes: 10
+
+  - label: ":go: Test"
+    key: "test"
+    command: "bash .buildkite/ci.sh test"
+    timeout_in_minutes: 15
+
+  - label: ":go: Build"
+    key: "build"
+    command: "bash .buildkite/ci.sh build"
+    timeout_in_minutes: 10
