@@ -96,6 +96,26 @@ Or if you want to open the running build in your browser:
 buildkite open
 ```
 
+## Buildkite CI
+
+This repo's Buildkite pipeline lives in [`.buildkite/pipeline.yml`](/Users/kevin/src/github.com/kevinburke/buildkite/.buildkite/pipeline.yml).
+The pipeline is designed for the self-hosted agents configured by the
+`buildkite_agent` role in `../caracal-server`.
+
+In the Buildkite UI, the bootstrap pipeline should be a single step that runs:
+
+```yaml
+steps:
+  - label: ":pipeline:"
+    command: ".buildkite/ci/upload-pipeline.sh"
+    agents:
+      vm: "buildkite"
+      host: "caracal"
+```
+
+The real `format`, `lint`, `test`, and `build` steps are then uploaded from the
+repository.
+
 
 ##### Configuring browser/browser "profile"
 

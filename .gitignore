@@ -1,4 +1,8 @@
 /.claude
 /var
+/.cache
 /.go
 /.tools
+/coverage
+/dist
+/reports
