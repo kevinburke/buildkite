@@ -15,9 +15,6 @@ import (
 	"github.com/kevinburke/go-types"
 )
 
-// The buildkite-go version. Run "make release" to bump this number.
-const Version = "0.27"
-
 type BuildState string
 
 type Build struct {
