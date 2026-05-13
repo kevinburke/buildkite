@@ -1,10 +1,15 @@
-test:
-	staticcheck ./...
-	go vet ./...
-	go test -trimpath ./...
+packages := . ./lib
 
-release:
-	bump_version --tag-prefix=v minor lib/lib.go
+test:
+	staticcheck $(packages)
+	go vet $(packages)
+	go test -trimpath $(packages)
+
+version ?= minor
+
+.PHONY: release
+release: test
+	go run github.com/kevinburke/bump_version@latest --tag-prefix=v $(version) lib/version.go
 
 force: ;
 
