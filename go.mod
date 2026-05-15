@@ -10,7 +10,7 @@ require (
 	github.com/kevinburke/go-types v0.0.0-20240719050749-165e75e768f7
 	github.com/kevinburke/rest v0.0.0-20250718180114-1a15e4f2364f
 	golang.org/x/sys v0.44.0
-	golang.org/x/term v0.42.0
+	golang.org/x/term v0.43.0
 )
 
 require (
