@@ -46,7 +46,7 @@ func (nt NullTime) MarshalJSON() ([]byte, error) {
 }
 
 // Scan implements the Scanner interface.
-func (nt *NullTime) Scan(value interface{}) error {
+func (nt *NullTime) Scan(value any) error {
 	nt.Time, nt.Valid = value.(time.Time)
 	return nil
 }
