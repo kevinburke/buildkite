@@ -20,8 +20,10 @@ race-test: lint
 $(BUMP_VERSION):
 	go get github.com/kevinburke/bump_version
 
+version ?= minor
+
 release: test | $(BUMP_VERSION)
-	$(BUMP_VERSION) minor types.go
+	$(BUMP_VERSION) --tag-prefix=v $(version) version.go
 
 docs: | $(GODOCDOC)
 	$(GODOCDOC)

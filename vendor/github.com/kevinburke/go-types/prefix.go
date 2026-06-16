@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	uuid "github.com/gofrs/uuid"
+	uuid "github.com/gofrs/uuid/v5"
 )
 
 // A PrefixUUID stores an additional prefix as part of a UUID type.
@@ -72,7 +72,7 @@ func (pu PrefixUUID) MarshalJSON() ([]byte, error) {
 // Scan implements the Scanner interface. Note only the UUID gets scanned/set
 // here, we can't determine the prefix from the database. `value` should be
 // a [16]byte
-func (pu *PrefixUUID) Scan(value interface{}) error {
+func (pu *PrefixUUID) Scan(value any) error {
 	if value == nil {
 		return errors.New("types: cannot scan null into a PrefixUUID")
 	}
