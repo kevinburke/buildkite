@@ -9,7 +9,7 @@ require (
 	github.com/kevinburke/bigtext v0.0.0-20220519224329-c26d116ded71
 	github.com/kevinburke/go-types v1.3.0
 	github.com/kevinburke/rest v0.0.0-20250718180114-1a15e4f2364f
-	golang.org/x/sys v0.46.0
+	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.44.0
 )
 
