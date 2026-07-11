@@ -134,6 +134,53 @@ func TestCommandRe(t *testing.T) {
 	}
 }
 
+func TestJobFailureDescription(t *testing.T) {
+	tests := []struct {
+		name       string
+		state      JobState
+		exitStatus *int
+		want       string
+	}{
+		{
+			name:       "passed",
+			state:      "passed",
+			exitStatus: intPtr(0),
+			want:       "",
+		},
+		{
+			name:       "failed no exit status",
+			state:      "failed",
+			exitStatus: nil,
+			want:       "failed",
+		},
+		{
+			name:       "failed with command exit status",
+			state:      "failed",
+			exitStatus: intPtr(2),
+			want:       "exit status 2",
+		},
+		{
+			name:       "failed because agent was lost",
+			state:      "failed",
+			exitStatus: intPtr(-1),
+			want:       "exit status -1 (agent lost)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			job := Job{State: tt.state, ExitStatus: tt.exitStatus}
+			if got := job.FailureDescription(); got != tt.want {
+				t.Errorf("FailureDescription() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func intPtr(v int) *int {
+	return &v
+}
+
 func TestPullRequest(t *testing.T) {
 	p := PullRequest{ID: "421", Base: "main", Repository: "https://github.com/segmentio/integrations-consumer.git"}
 	if u := p.URL(); u != "https://github.com/segmentio/integrations-consumer/pull/421" {

@@ -6,7 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/kevinburke/go-types"
 )
 
 func TestGraphQL(t *testing.T) {
@@ -186,4 +190,81 @@ func TestListBuildsWithSlashInBranch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildSummaryShowsExitStatus(t *testing.T) {
+	startedAt := time.Date(2026, 7, 11, 10, 0, 0, 0, time.UTC)
+	finishedAt := startedAt.Add(5 * time.Second)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/organizations/test-org/pipelines/test-pipeline/builds/123/jobs/job-1/log" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("failure output\n"))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-token")
+	client.Client.Base = server.URL
+
+	out := client.BuildSummary(context.Background(), "test-org", Build{
+		Number: 123,
+		Pipeline: Pipeline{
+			Slug: "test-pipeline",
+		},
+		Jobs: []Job{
+			{
+				ID:         "job-1",
+				Name:       "test",
+				State:      "failed",
+				ExitStatus: intPtr(2),
+				StartedAt:  startedAt,
+				FinishedAt: nullTime(finishedAt),
+			},
+		},
+	}, 10)
+
+	got := string(out)
+	if !strings.Contains(got, "test 5s exit status 2") {
+		t.Fatalf("BuildSummary() did not include exit status:\n%s", got)
+	}
+}
+
+func TestBuildSummaryShowsAgentLostExitStatus(t *testing.T) {
+	startedAt := time.Date(2026, 7, 11, 10, 0, 0, 0, time.UTC)
+	finishedAt := startedAt.Add(5 * time.Second)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("agent disappeared\n"))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-token")
+	client.Client.Base = server.URL
+
+	out := client.BuildSummary(context.Background(), "test-org", Build{
+		Number: 123,
+		Pipeline: Pipeline{
+			Slug: "test-pipeline",
+		},
+		Jobs: []Job{
+			{
+				ID:         "job-1",
+				Name:       "integration",
+				State:      "failed",
+				ExitStatus: intPtr(-1),
+				StartedAt:  startedAt,
+				FinishedAt: nullTime(finishedAt),
+			},
+		},
+	}, 10)
+
+	got := string(out)
+	if !strings.Contains(got, "integration 5s exit status -1 (agent lost)") {
+		t.Fatalf("BuildSummary() did not include agent lost exit status:\n%s", got)
+	}
+}
+
+func nullTime(t time.Time) types.NullTime {
+	return types.NullTime{Time: t, Valid: true}
 }

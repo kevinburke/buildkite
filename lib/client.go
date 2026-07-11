@@ -430,6 +430,7 @@ func (c *Client) BuildSummary(ctx context.Context, org string, build Build, numO
 	*/
 	var failure []byte
 	for i := range build.Jobs {
+		job := build.Jobs[i]
 		duration := build.Jobs[i].FinishedAt.Time.Sub(build.Jobs[i].StartedAt)
 		if duration > time.Minute {
 			duration = duration.Round(time.Second)
@@ -449,10 +450,14 @@ func (c *Client) BuildSummary(ctx context.Context, org string, build Build, numO
 				failure = FindBuildFailure(logs, numOutputLines)
 			}
 		}
-		fmt.Fprintf(writer, "%s\t%s\n", build.Jobs[i].Name, durString)
+		if failureDescription := job.FailureDescription(); failureDescription != "" {
+			fmt.Fprintf(writer, "%s\t%s\t%s\n", job.Name, durString, failureDescription)
+		} else {
+			fmt.Fprintf(writer, "%s\t%s\n", job.Name, durString)
+		}
 	}
 	writer.Flush()
-	linelen := bytes.IndexByte(buf.Bytes()[1:], '\n')
+	linelen := maxLineLen(buf.Bytes()[1:])
 	var buf2 bytes.Buffer
 	buf2.WriteByte('\n')
 	buf2.Write(bytes.Repeat([]byte{'='}, linelen))
@@ -461,6 +466,23 @@ func (c *Client) BuildSummary(ctx context.Context, org string, build Build, numO
 		buf2.Write(failure)
 	}
 	return append(buf.Bytes(), buf2.Bytes()...)
+}
+
+func maxLineLen(data []byte) int {
+	maxLen := 0
+	for {
+		idx := bytes.IndexByte(data, '\n')
+		if idx == -1 {
+			if len(data) > maxLen {
+				maxLen = len(data)
+			}
+			return maxLen
+		}
+		if idx > maxLen {
+			maxLen = idx
+		}
+		data = data[idx+1:]
+	}
 }
 
 const Host = "https://api.buildkite.com"

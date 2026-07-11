@@ -64,6 +64,7 @@ type Job struct {
 	Name        string         `json:"name"`
 	Command     string         `json:"command"`
 	State       JobState       `json:"state"`
+	ExitStatus  *int           `json:"exit_status"`
 	CreatedAt   time.Time      `json:"created_at"`
 	StartedAt   time.Time      `json:"started_at"`
 	ScheduledAt types.NullTime `json:"scheduled_at"`
@@ -80,6 +81,19 @@ type Log struct {
 func (j Job) Failed() bool {
 	// TODO
 	return j.State == "failed"
+}
+
+func (j Job) FailureDescription() string {
+	if !j.Failed() {
+		return ""
+	}
+	if j.ExitStatus == nil {
+		return "failed"
+	}
+	if *j.ExitStatus == -1 {
+		return "exit status -1 (agent lost)"
+	}
+	return fmt.Sprintf("exit status %d", *j.ExitStatus)
 }
 
 type JobState string
