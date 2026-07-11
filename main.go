@@ -1106,8 +1106,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 				}
 			*/
 			fmt.Printf("\nURL:\n%s\n", latestBuild.WebURL)
-			//lint:ignore ST1005 this shows up in public facing error.
-			err = fmt.Errorf("Build on %s failed!\n\n", branch)
+			err = buildFailedError(branch, latestBuild)
 			c.Display("build failed")
 			return err
 		case "running":
@@ -1138,4 +1137,23 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 	*/
 	_ = lastPrintedAt
 	return nil
+}
+
+func buildFailedError(branch string, build buildkite.Build) error {
+	msg := fmt.Sprintf("Build on %s failed!", branch)
+	if details := failedJobDetails(build); details != "" {
+		msg += "\n\nFailed jobs:\n" + details
+	}
+	//lint:ignore ST1005 this shows up in public facing error.
+	return fmt.Errorf("%s\n\n", msg)
+}
+
+func failedJobDetails(build buildkite.Build) string {
+	var details []string
+	for _, job := range build.Jobs {
+		if failureDescription := job.FailureDescription(); failureDescription != "" {
+			details = append(details, fmt.Sprintf("%s: %s", job.Name, failureDescription))
+		}
+	}
+	return strings.Join(details, "\n")
 }

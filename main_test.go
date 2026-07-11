@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	buildkite "github.com/kevinburke/buildkite/lib"
 	"golang.org/x/sys/unix"
 )
 
@@ -568,4 +569,63 @@ func TestIsHttpError(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFailedJobDetails(t *testing.T) {
+	build := buildkite.Build{
+		Jobs: []buildkite.Job{
+			{
+				Name:       ":go: Lint",
+				State:      "failed",
+				ExitStatus: testIntPtr(-1),
+			},
+			{
+				Name:       ":go: Fix",
+				State:      "passed",
+				ExitStatus: testIntPtr(0),
+			},
+			{
+				Name:       ":go: Test",
+				State:      "failed",
+				ExitStatus: testIntPtr(2),
+			},
+		},
+	}
+
+	want := strings.Join([]string{
+		":go: Lint: exit status -1 (agent lost)",
+		":go: Test: exit status 2",
+	}, "\n")
+	if got := failedJobDetails(build); got != want {
+		t.Fatalf("failedJobDetails() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildFailedErrorIncludesFailedJobDetails(t *testing.T) {
+	build := buildkite.Build{
+		Jobs: []buildkite.Job{
+			{
+				Name:       "integration",
+				State:      "failed",
+				ExitStatus: testIntPtr(-1),
+			},
+		},
+	}
+
+	err := buildFailedError("feature-branch", build)
+	want := strings.Join([]string{
+		"Build on feature-branch failed!",
+		"",
+		"Failed jobs:",
+		"integration: exit status -1 (agent lost)",
+		"",
+		"",
+	}, "\n")
+	if got := err.Error(); got != want {
+		t.Fatalf("buildFailedError().Error() = %q, want %q", got, want)
+	}
+}
+
+func testIntPtr(v int) *int {
+	return &v
 }
