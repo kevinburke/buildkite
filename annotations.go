@@ -3,12 +3,13 @@ package main
 import (
 	"os"
 
+	"charm.land/glamour/v2"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/base"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/commonmark"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/table"
-	"github.com/charmbracelet/glamour"
 	buildkite "github.com/kevinburke/buildkite/lib"
+	"github.com/muesli/termenv"
 	"golang.org/x/term"
 )
 
@@ -20,10 +21,17 @@ func getTerminalWidth() int {
 	return width
 }
 
+func autoStylePath() string {
+	if termenv.HasDarkBackground() {
+		return "dark"
+	}
+	return "light"
+}
+
 func getANSIAnnotations(annotations buildkite.AnnotationResponse) ([]string, error) {
 	width := min(getTerminalWidth(), 120)
 	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStylePath(autoStylePath()),
 		glamour.WithWordWrap(width),
 	)
 	if err != nil {

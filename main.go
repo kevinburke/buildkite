@@ -27,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/kevinburke/bigtext"
 	buildkite "github.com/kevinburke/buildkite/lib"
 	"golang.org/x/sys/unix"
@@ -804,9 +805,7 @@ func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName, s
 		}
 	}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		success, err := client.GraphQL().Can(ctxB)
 		can := ""
 		if success {
@@ -817,12 +816,10 @@ func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName, s
 		case <-ctxB.Done():
 			// Context was cancelled, don't send result
 		}
-	}()
+	})
 
 	// Start request C: GraphQLPipelines
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		parameters := map[string]any{
 			"first": 250,
 		}
@@ -865,7 +862,7 @@ func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName, s
 		case <-ctxC.Done():
 			// Context was cancelled, don't send result
 		}
-	}()
+	})
 
 	// Create a goroutine to close the results channel when all requests are done
 	go func() {
@@ -1084,7 +1081,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 					output.WriteString(annotation + "\n")
 				}
 			}
-			fmt.Print(output.String())
+			lipgloss.Print(output.String())
 			c.Display(branch + " build complete!")
 			return nil
 		case "failing", "failed":
