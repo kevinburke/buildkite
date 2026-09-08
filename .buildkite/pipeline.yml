@@ -31,9 +31,12 @@ steps:
     agents:
       vm: "buildkite"
       host: "caracal"
+    # coverage/ is deliberately NOT uploaded. Nothing downloads or renders it,
+    # and `go test -coverprofile` still writes it locally, which is where
+    # anyone who wants it looks. Across the organization it was 8.2 GiB, half
+    # of all Buildkite hosted-artifact storage.
     artifact_paths:
       - "reports/tests/**/*"
-      - "coverage/**/*"
 
   - label: ":go: Build"
     key: "build"
@@ -46,6 +49,9 @@ steps:
     agents:
       vm: "buildkite"
       host: "caracal"
+    # The compiled binary is deliberately NOT uploaded to Buildkite. This step
+    # is a compile gate: the dev role installs this CLI with `go install
+    # github.com/kevinburke/buildkite`, so nothing downloads dist/buildkite.
+    # It cost 0.02 GiB of the 50 GB hosted-artifact limit breached 2026-09-08.
     artifact_paths:
-      - "dist/**/*"
       - "reports/build/**/*"
