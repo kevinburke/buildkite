@@ -40,7 +40,9 @@ func NewClient(token string) *Client {
 	if host == "" {
 		host = Host
 	}
+	budget := new(Budget)
 	rc := restclient.NewBearerClient(token, host)
+	installRateLimitTransport(rc, budget)
 	rc.ErrorParser = func(r *http.Response) error {
 		data, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -54,6 +56,11 @@ func NewClient(token string) *Client {
 	}
 
 	qc := restclient.NewBearerClient(token, GraphQLHost)
+	// The GraphQL API has its own rate limit, but it is refused the same way
+	// and a refusal is just as fatal, so it gets the same transport. It
+	// deliberately does NOT share the REST budget: pacing REST polls off a
+	// GraphQL window would be pacing against the wrong number.
+	installRateLimitTransport(qc, new(Budget))
 	qc.ErrorParser = func(r *http.Response) error {
 		data, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -69,6 +76,34 @@ func NewClient(token string) *Client {
 	return &Client{
 		Client:        rc,
 		GraphQLClient: qc,
+		budget:        budget,
+	}
+}
+
+// retryAttempts is how many times a refused request is sent before the
+// refusal is reported to the caller. Each retry waits out the rate limit
+// window, so three attempts covers roughly two minutes of contention -- long
+// enough to ride out another session's burst, short enough that a genuinely
+// exhausted token still surfaces.
+const retryAttempts = 3
+
+func installRateLimitTransport(c *restclient.Client, budget *Budget) {
+	base := c.Client.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	// restclient shares one *http.Client across every client it builds, so
+	// wrapping that client's transport in place would wrap it repeatedly and
+	// leak the budget of one host into another. Give this client its own.
+	c.Client = &http.Client{
+		Timeout: c.Client.Timeout,
+		Transport: &retryTransport{
+			base:        base,
+			budget:      budget,
+			maxAttempts: retryAttempts,
+			now:         time.Now,
+			sleep:       sleepContext,
+		},
 	}
 }
 
@@ -76,6 +111,16 @@ type Client struct {
 	*restclient.Client
 	GraphQLClient *restclient.Client
 	APIVersion    string
+
+	budget *Budget
+}
+
+// Budget reports the REST rate limit window as Buildkite last described it.
+// Callers that poll should pace themselves against it: the window is shared
+// with every other process using this token, so a caller that spends it all
+// is refusing somebody else's request, not its own.
+func (c *Client) Budget() *Budget {
+	return c.budget
 }
 
 // GetResource retrieves an instance resource with the given path part (e.g.

@@ -90,6 +90,35 @@ buildkite wait
 
 This will wait for your build to complete and then print out summary statistics.
 
+`wait` exits 0 if the build passed and 1 if it failed. It exits **75**
+(`EX_TEMPFAIL`) when it could not reach a verdict at all -- the API refused us
+for long enough to give up, or no build was ever created for the commit. A
+caller that merges on green should retry that status rather than report a
+failed build.
+
+#### Sharing an API token between concurrent waits
+
+Buildkite's REST rate limit is enforced per API token over a fixed one-minute
+window, and every consumer shares it: each concurrent `buildkite wait`, any
+push hook that creates builds, and any script you run. Two things follow, and
+`wait` handles both:
+
+- A refused request (HTTP 429) is retried, waiting out the window Buildkite
+  names in its response. Without this a single refusal out of thousands of
+  requests surfaces as though the build had gone red.
+
+- Polling is paced against the `RateLimit-*` headers on every response, and a
+  reserve of the window is left unspent. The reserve matters more than the
+  pacing: spending the last of the window does not slow *you* down, it refuses
+  somebody else's request -- and if that somebody is the hook that creates
+  builds, no build is created at all.
+
+If your Buildkite pipeline slug does not match your git remote, `wait` searches
+the organization for it, which costs a burst of requests. It writes the answer
+to `buildkite.pipeline` in git config so the search happens once; pass
+`--pipeline <slug>` to skip it entirely, or `git config --unset
+buildkite.pipeline` to make it search again.
+
 Or if you want to open the running build in your browser:
 
 ```

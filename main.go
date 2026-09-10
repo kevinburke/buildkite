@@ -76,12 +76,18 @@ func main() {
 	waitRemote := waitflags.String("remote", "origin", "Git remote to use")
 	waitOutputLines := waitflags.Int("failed-output-lines", 100, "Number of lines of failed output to display")
 	waitQuiet := waitflags.Bool("quiet", false, "Reduce progress output while waiting for a build")
+	waitPipeline := waitflags.String("pipeline", "", "Buildkite pipeline slug; skips searching for one")
 	waitflags.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: wait [refspec]
 
 Wait for builds to complete, then print a descriptive output on success or
 failure. By default, waits on the current branch, otherwise you can pass a
 branch to wait for.
+
+Exits 0 if the build passed and 1 if it failed. Exits 75 (EX_TEMPFAIL) when
+no verdict could be reached -- the API refused us, or no build was ever
+created for the commit -- so that callers can retry those without reporting
+a failed build.
 
 `)
 		waitflags.PrintDefaults()
@@ -150,7 +156,7 @@ and commit. Use --build-number to rebuild a specific build.
 			checkError(err, "creating Buildkite client")
 		}
 
-		err = doWait(ctx, client, org, remote, branch, *waitOutputLines, *waitQuiet)
+		err = doWait(ctx, client, org, remote, branch, *waitOutputLines, *waitQuiet, *waitPipeline)
 		checkError(err, "waiting for branch")
 	case "open":
 		openflags.Parse(subargs)
@@ -237,6 +243,9 @@ func failError(err error, msg string) {
 	} else {
 		fmt.Fprintf(os.Stderr, "Error %s: %v\n", msg, err)
 	}
+	if isTemporary(err) {
+		os.Exit(exitTemporary)
+	}
 	os.Exit(1)
 }
 
@@ -288,6 +297,9 @@ func getLatestBuildForCommit(ctx context.Context, client *buildkite.Client, org,
 		}
 	}
 
+	if len(builds) == 0 {
+		return buildkite.Build{}, errNoPipelineBuilds
+	}
 	return buildkite.Build{}, errNoBuilds
 }
 
@@ -336,7 +348,17 @@ func isHttpError(err error) bool {
 	}
 }
 
+// errNoBuilds means the pipeline is real and has builds, just not one for
+// the commit we asked about -- almost always because it was pushed a moment
+// ago and the build has not been created yet.
 var errNoBuilds = errors.New("buildkite: no builds")
+
+// errNoPipelineBuilds means the pipeline has never built anything, which is
+// the signal that we are looking at the wrong pipeline and should go find the
+// right one. Telling these two apart is what keeps a freshly pushed commit
+// out of the pipeline-discovery path, which is a burst of requests that
+// answers a question nobody asked.
+var errNoPipelineBuilds = errors.New("buildkite: pipeline has no builds")
 
 func shouldPrint(lastPrinted time.Time, duration time.Duration, latestBuild buildkite.Build, previousBuild *buildkite.Build) bool {
 	_ = latestBuild
@@ -373,9 +395,22 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 		return err
 	}
 	orgName, slug := org.Name, remote.RepoName
+	if cached, ok := cachedPipelineSlug(); ok {
+		slog.Debug("Using cached pipeline slug", "slug", cached)
+		slug = cached
+	}
+
 	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
 	if err != nil {
-		if berr, ok := err.(*buildkite.Error); ok && berr.StatusCode == 404 {
+		// errNoBuilds is deliberately absent here. It means the pipeline is
+		// real and building this repo, so the only thing missing is our own
+		// commit's build, and the wait loop below is what handles that.
+		// Searching every pipeline in the organization for a build that was
+		// pushed two seconds ago spends a burst of requests to answer a
+		// question that answers itself.
+		berr, isBuildkiteErr := err.(*buildkite.Error)
+		switch {
+		case (isBuildkiteErr && berr.StatusCode == 404) || err == errNoPipelineBuilds:
 			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
 			if err != nil {
 				return err
@@ -385,18 +420,10 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 				return err
 			}
 			slug = foundSlug
-		} else if err == errNoBuilds {
-			// If original slug has no builds, try candidates
-			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
-			if err != nil {
-				return err
-			}
-			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
-			if err != nil {
-				return err
-			}
-			slug = foundSlug
-		} else {
+			cachePipelineSlug(slug)
+		case err == errNoBuilds:
+			// Fall through to the wait loop.
+		default:
 			fmt.Printf("latest build at top of doWait err: %v\n", err)
 			return err
 		}
@@ -415,7 +442,7 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 				}
 				networkErrorDuration := now.Sub(networkErrorStartedAt).Round(time.Second)
 				if networkErrorDuration > networkErrorTolerance {
-					return fmt.Errorf("network errors persisted for %s (tolerance: %s): %w",
+					return temporary("network errors persisted for %s (tolerance: %s): %w",
 						networkErrorDuration, networkErrorTolerance, err)
 				}
 				fmt.Printf("Caught network error: %s (retrying for %s, tolerance %s)\n",
@@ -914,6 +941,12 @@ func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName, s
 
 // tryPipelineCandidates tries each pipeline candidate in order until it finds one with builds matching the commit
 func tryPipelineCandidates(ctx context.Context, client *buildkite.Client, orgName string, candidates []ScoredSlug, branch, commit string) (string, error) {
+	// A candidate that builds this repo but has no build for our commit is
+	// still the right pipeline -- the commit was pushed seconds ago and the
+	// build has not been created yet. Remember the best-scoring one of those
+	// so that a freshly pushed commit does not report "no pipeline", which is
+	// a claim about the repository rather than about the timing.
+	var pipelineWithoutOurBuild string
 	for i, candidate := range candidates {
 		slog.Debug("Trying pipeline candidate", "slug", candidate.Slug, "score", candidate.Score, "attempt", i+1, "total", len(candidates))
 		_, err := getLatestBuildForCommit(ctx, client, orgName, candidate.Slug, branch, commit)
@@ -921,26 +954,57 @@ func tryPipelineCandidates(ctx context.Context, client *buildkite.Client, orgNam
 			slog.Debug("Found builds for pipeline", "slug", candidate.Slug)
 			return candidate.Slug, nil
 		}
-		if err != errNoBuilds {
+		if err == errNoBuilds {
+			if pipelineWithoutOurBuild == "" {
+				pipelineWithoutOurBuild = candidate.Slug
+			}
+			slog.Debug("Candidate has builds but not ours", "slug", candidate.Slug)
+			continue
+		}
+		if err != errNoPipelineBuilds {
 			// For non-"no builds" errors, continue to next candidate
 			slog.Debug("Non-build error for candidate", "slug", candidate.Slug, "err", err)
 			continue
 		}
 		slog.Debug("No builds found for candidate", "slug", candidate.Slug)
 	}
+	if pipelineWithoutOurBuild != "" {
+		return pipelineWithoutOurBuild, nil
+	}
 	return "", fmt.Errorf("no pipeline candidates have builds for branch %s with commit %s", branch, commit)
 }
 
-func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *RemoteURL, branch string, numOutputLines int, quiet bool) error {
+func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organization, remote *RemoteURL, branch string, numOutputLines int, quiet bool, pipeline string) error {
 	tip, err := gitTip(branch)
 	if err != nil {
 		return err
 	}
 	orgName, slug := org.Name, remote.RepoName
 
+	// An explicit slug is the caller's answer and is never second-guessed;
+	// otherwise fall back to one a previous run wrote down.
+	pinnedPipeline := pipeline != ""
+	if pinnedPipeline {
+		slug = pipeline
+	} else if cached, ok := cachedPipelineSlug(); ok {
+		slog.Debug("Using cached pipeline slug", "slug", cached)
+		slug = cached
+	}
+
 	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
-	if err != nil {
-		if berr, ok := err.(*buildkite.Error); ok && berr.StatusCode == 404 {
+	if err != nil && pinnedPipeline && err != errNoBuilds && err != errNoPipelineBuilds {
+		return err
+	}
+	if err != nil && !pinnedPipeline {
+		// errNoBuilds is deliberately absent here. It means the pipeline is
+		// real and building this repo, so the only thing missing is our own
+		// commit's build, and the wait loop below is what handles that.
+		// Searching every pipeline in the organization for a build that was
+		// pushed two seconds ago spends a burst of requests to answer a
+		// question that answers itself.
+		berr, isBuildkiteErr := err.(*buildkite.Error)
+		switch {
+		case (isBuildkiteErr && berr.StatusCode == 404) || err == errNoPipelineBuilds:
 			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
 			if err != nil {
 				return err
@@ -950,18 +1014,10 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 				return err
 			}
 			slug = foundSlug
-		} else if err == errNoBuilds {
-			// If original slug has no builds, try candidates
-			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
-			if err != nil {
-				return err
-			}
-			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
-			if err != nil {
-				return err
-			}
-			slug = foundSlug
-		} else {
+			cachePipelineSlug(slug)
+		case err == errNoBuilds:
+			// Fall through to the wait loop.
+		default:
 			fmt.Printf("latest build at top of doWait err: %v\n", err)
 			return err
 		}
@@ -997,9 +1053,33 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 	var networkErrorStartedAt time.Time
 	done := false
 	var printedBuildNumber bool
+	// The build for a just-pushed commit is created by a fire-and-forget POST
+	// from the git post-receive hook, so it lands shortly after the push --
+	// or, if that POST was itself refused, never. Give it a bounded window to
+	// appear before saying anything; a single miss used to be fatal within a
+	// second of starting.
+	buildCreateDeadline := time.Now().Add(buildCreateTimeout)
+	var announcedMissingBuild bool
 	for !done {
 		latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
 		if err != nil {
+			if err == errNoBuilds || err == errNoPipelineBuilds {
+				if time.Now().After(buildCreateDeadline) {
+					return temporary("no Buildkite build was created for %s on %s within %s.\n"+
+						"The push succeeded, so the build trigger is what failed -- most often the\n"+
+						"git post-receive hook being refused by the API rate limit. Check that the\n"+
+						"commit was pushed, then trigger a build for it by hand.",
+						tip, branch, buildCreateTimeout)
+				}
+				if !quiet && !announcedMissingBuild {
+					fmt.Printf("No build for %s yet, waiting for one to be created\n", tip)
+					announcedMissingBuild = true
+				}
+				if err := sleepUntilNextPoll(ctx, client); err != nil {
+					return err
+				}
+				continue
+			}
 			if isHttpError(err) {
 				now := time.Now()
 				if networkErrorStartedAt.IsZero() {
@@ -1007,7 +1087,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 				}
 				networkErrorDuration := now.Sub(networkErrorStartedAt).Round(time.Second)
 				if networkErrorDuration > networkErrorTolerance {
-					return fmt.Errorf("network errors persisted for %s (tolerance: %s): %w",
+					return temporary("network errors persisted for %s (tolerance: %s): %w",
 						networkErrorDuration, networkErrorTolerance, err)
 				}
 				if !quiet {
@@ -1021,11 +1101,6 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 				case <-time.After(2 * time.Second):
 				}
 				continue
-			}
-			if err == errNoBuilds {
-				//lint:ignore ST1005 this shows up in public facing error.
-				return fmt.Errorf("No results, are you sure there are tests for %s/%s?\n",
-					org.Name, remote.RepoName)
 			}
 			return err
 		}
@@ -1120,10 +1195,8 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 				lastPrintedAt = time.Now()
 			}
 		}
-		select {
-		case <-time.After(3 * time.Second):
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := sleepUntilNextPoll(ctx, client); err != nil {
+			return err
 		}
 		_ = previousBuild
 	}
