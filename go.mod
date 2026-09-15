@@ -12,7 +12,7 @@ require (
 	github.com/kevinburke/rest v0.0.0-20250718180114-1a15e4f2364f
 	github.com/muesli/termenv v0.16.0
 	golang.org/x/sys v0.48.0
-	golang.org/x/term v0.45.0
+	golang.org/x/term v0.46.0
 )
 
 require (
