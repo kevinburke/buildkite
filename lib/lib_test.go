@@ -187,3 +187,21 @@ func TestPullRequest(t *testing.T) {
 		t.Errorf("incorrect URL: got %q", u)
 	}
 }
+
+func TestCleanLog(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"plain\n", "plain\n"},
+		{"\x1b_bk;t=1700000000000\x07line\n", "line\n"},
+		{"\x1b[31;1mred\x1b[0m", "red"},
+		{"\x1b[2K\x1b[1Gprogress", "progress"},
+		{"\x1b]1339;url=https://example.com;content=x\x07after", "after"},
+		{"\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\", "link"},
+		{"a\r\nb\r\r\nc\n", "a\nb\nc\n"},
+		{"x\n  1%\r 50%\r100%, done.\r\ny\n", "x\n100%, done.\ny\n"},
+	}
+	for _, tt := range tests {
+		if got := string(CleanLog([]byte(tt.in))); got != tt.want {
+			t.Errorf("CleanLog(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

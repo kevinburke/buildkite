@@ -309,3 +309,31 @@ func FindBuildFailure(log []byte, numOutputLines int) []byte {
 	}
 	return log[newlineIdx:idx]
 }
+
+// terminalEscapeRe matches the escape sequences Buildkite leaves in a raw job
+// log: CSI sequences (colors, cursor movement), OSC sequences (hyperlinks,
+// window titles), and the APC sequences the agent uses to timestamp each line
+// ("\x1b_bk;t=1700000000000\x07").
+var terminalEscapeRe = regexp.MustCompile("\x1b(?:" +
+	`\[[0-?]*[ -/]*[@-~]` + // CSI
+	`|\][^\x07\x1b]*(?:\x07|\x1b\\)` + // OSC, terminated by BEL or ST
+	`|_[^\x07\x1b]*(?:\x07|\x1b\\)` + // APC, terminated by BEL or ST
+	")")
+
+// crlfRe matches the line endings the agent writes, which are "\r\n" and
+// sometimes "\r\r\n".
+var crlfRe = regexp.MustCompile(`\r+\n`)
+
+// overwrittenRe matches the part of a line that a later carriage return
+// overwrites, as in a progress bar ("  1%\r  2%\r100%").
+var overwrittenRe = regexp.MustCompile(`(?m)^[^\n]*\r`)
+
+// CleanLog makes a raw job log read the way it does in a terminal, so it can be
+// opened in an editor or searched with grep: it removes terminal escape
+// sequences, converts CRLF line endings to LF, and keeps only the final state
+// of a line that was redrawn with carriage returns.
+func CleanLog(log []byte) []byte {
+	log = terminalEscapeRe.ReplaceAll(log, nil)
+	log = crlfRe.ReplaceAll(log, []byte{'\n'})
+	return overwrittenRe.ReplaceAll(log, nil)
+}

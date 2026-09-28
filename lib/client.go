@@ -405,6 +405,13 @@ func (b *BuildService) Cancel(ctx context.Context) (Build, error) {
 	return val, err
 }
 
+// Get retrieves the build, including its jobs.
+func (b *BuildService) Get(ctx context.Context) (Build, error) {
+	var val Build
+	err := b.client.ListResource(ctx, b.Path(), nil, &val)
+	return val, err
+}
+
 // Rebuild triggers a rebuild of the build. Returns the newly created Build.
 func (b *BuildService) Rebuild(ctx context.Context) (Build, error) {
 	path := b.Path() + "/rebuild"
@@ -435,10 +442,10 @@ func (j *JobService) RawLog(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		return nil, restclient.DefaultErrorParser(resp)
 	}
-	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err

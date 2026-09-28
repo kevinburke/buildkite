@@ -1,3 +1,11 @@
+## Unreleased
+
+- Add `buildkite logs`, which downloads the log for each job in a build to a
+  temporary directory (or `--dir`) and prints the directory. `--failed`
+  limits it to failed jobs. Logs are stripped of color codes, timestamp
+  markers, CRLF line endings and redrawn progress bars unless `--raw` is
+  passed.
+
 ## v0.28 (September 10, 2026)
 
 Survive a shared rate limit window, so that several `buildkite wait` runs can

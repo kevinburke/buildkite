@@ -30,6 +30,21 @@ brew install terminal-notifier
 
 [terminal-notifier]: https://github.com/julienXX/terminal-notifier
 
+### Downloading logs
+
+`buildkite logs` downloads the log for each job in the latest build for the
+current commit, one file per job, and prints the directory it wrote them to:
+
+```
+$ rg -i panic "$(buildkite logs --failed)"
+```
+
+By default the logs are cleaned up to read the way they do in a terminal:
+color codes and timestamp markers are removed, and progress bars that redraw
+themselves with a carriage return keep only their final state. Pass `--raw`
+to keep the log exactly as Buildkite stores it. Use `--build-number` to pick a
+different build and `--dir` to choose where the files go.
+
 ## Roadmap
 
 Implement the features from e.g. github.com/kevinburke/go-circle, for example:

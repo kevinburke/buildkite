@@ -268,3 +268,32 @@ func TestBuildSummaryShowsAgentLostExitStatus(t *testing.T) {
 func nullTime(t time.Time) types.NullTime {
 	return types.NullTime{Time: t, Valid: true}
 }
+
+func TestBuildGet(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("expected GET request, got %s", r.Method)
+		}
+		expectedPath := "/v2/organizations/test-org/pipelines/test-pipeline/builds/123"
+		if r.URL.Path != expectedPath {
+			t.Errorf("expected path %s, got %s", expectedPath, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(Build{
+			Number: 123,
+			State:  "failed",
+			Jobs:   []Job{{ID: "job-1", Name: "test", LogURL: "https://example.com/log"}},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient("test-token")
+	client.Client.Base = server.URL
+	build, err := client.Organization("test-org").Pipeline("test-pipeline").Build(123).Get(context.Background())
+	if err != nil {
+		t.Fatalf("Get() returned error: %v", err)
+	}
+	if build.Number != 123 || len(build.Jobs) != 1 || build.Jobs[0].ID != "job-1" {
+		t.Errorf("unexpected build: %+v", build)
+	}
+}

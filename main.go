@@ -6,10 +6,18 @@
 //
 // The commands are:
 //
+//	cancel              Cancel the running build
+//	logs                Download a build's job logs to a directory
+//	open                Open the running build in your browser
+//	rebuild             Rebuild a build
 //	version             Print the current version
 //	wait                Wait for tests to finish on a branch.
 //
-// Use "buildkite help [command]" for more information about a command.
+// Commands that act on a build use the latest build for the current branch and
+// commit, unless you pass a branch or ref (e.g. "buildkite logs main").
+//
+// Use "buildkite help [command]" or "buildkite [command] --help" for more
+// information about a command.
 package main
 
 import (
@@ -42,12 +50,17 @@ Usage:
 The commands are:
 
 	cancel              Cancel the running build
+	logs                Download a build's job logs to a directory
 	open                Open the running build in your browser
 	rebuild             Rebuild a build
 	version             Print the current version
 	wait                Wait for tests to finish on a branch.
 
-Use "buildkite help [command]" for more information about a command.
+Commands that act on a build use the latest build for the current branch and
+commit, unless you pass a branch or ref (e.g. "buildkite logs main").
+
+Use "buildkite help [command]" or "buildkite [command] --help" for more
+information about a command.
 `
 
 func usage() {
@@ -93,6 +106,15 @@ a failed build.
 		waitflags.PrintDefaults()
 	}
 	openRemote := openflags.String("remote", "origin", "Git remote to use")
+	openflags.Usage = func() {
+		fmt.Fprintf(os.Stderr, `usage: open [refspec]
+
+Open the latest build for the current branch and commit in your browser, or
+for refspec if you pass one.
+
+`)
+		openflags.PrintDefaults()
+	}
 	cancelRemote := cancelflags.String("remote", "origin", "Git remote to use")
 	cancelBuildNumber := cancelflags.Int64("build-number", 0, "Build number to cancel (if not specified, cancels the latest build for the current commit)")
 	cancelflags.Usage = func() {
@@ -116,6 +138,38 @@ and commit. Use --build-number to rebuild a specific build.
 `)
 		rebuildflags.PrintDefaults()
 	}
+	logsflags := flag.NewFlagSet("logs", flag.ExitOnError)
+	logsRemote := logsflags.String("remote", "origin", "Git remote to use")
+	logsBuildNumber := logsflags.Int64("build-number", 0, "Build number to download logs for (if not specified, uses the latest build for the current commit)")
+	logsPipeline := logsflags.String("pipeline", "", "Buildkite pipeline slug; skips searching for one")
+	logsDir := logsflags.String("dir", "", "Directory to write logs into (default: a new temporary directory)")
+	logsFailed := logsflags.Bool("failed", false, "Only download logs for failed jobs")
+	logsRaw := logsflags.Bool("raw", false, "Keep the log exactly as Buildkite stores it, without cleaning it up")
+	logsflags.Usage = func() {
+		fmt.Fprintf(os.Stderr, `usage: logs [--build-number N] [--failed] [--dir DIR] [refspec]
+
+Download the log for each job in a build, one file per job, named
+"NN-<job name>.log" in pipeline order. By default, uses the latest build for
+the current branch and commit; pass a refspec (e.g. "main") to use the
+latest build for that branch's tip instead, or --build-number to pick one
+build. Files go to a new temporary directory unless you pass --dir.
+
+The files written are listed on stderr, and only the directory is printed on
+stdout, so you can run e.g.:
+
+	rg -i panic "$(buildkite logs --failed)"
+
+Logs are cleaned up to read the way they did in a terminal: color codes and
+Buildkite's timestamp markers are removed, CRLF line endings become LF, and
+progress bars redrawn with carriage returns keep only their final state.
+Pass --raw to keep the log exactly as Buildkite stores it.
+
+Exits 1 if a log could not be downloaded, or if there were no logs to
+download (e.g. --failed on a passing build).
+
+`)
+		logsflags.PrintDefaults()
+	}
 	debug := flag.Bool("debug", false, "Enable the debug log level")
 	flag.Parse()
 	if *debug {
@@ -131,13 +185,43 @@ and commit. Use --build-number to rebuild a specific build.
 		fmt.Fprintf(os.Stdout, "buildkite version %s\n", buildkite.Version)
 		os.Exit(0)
 	}
+	flagsets := map[string]*flag.FlagSet{
+		"cancel":  cancelflags,
+		"logs":    logsflags,
+		"open":    openflags,
+		"rebuild": rebuildflags,
+		"wait":    waitflags,
+	}
+	if flag.Arg(0) == "help" {
+		if len(subargs) == 0 {
+			usage()
+			os.Exit(0)
+		}
+		fs, ok := flagsets[subargs[0]]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "buildkite: unknown help topic %q\n\n", subargs[0])
+			usage()
+			os.Exit(2)
+		}
+		fs.Usage()
+		os.Exit(0)
+	}
+	subflags, ok := flagsets[flag.Arg(0)]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "buildkite: unknown command %q\n\n", flag.Arg(0))
+		usage()
+		os.Exit(2)
+	}
+	// Parse before loading the config, so that --help works before a config
+	// file exists.
+	subflags.Parse(subargs)
+	args := subflags.Args()
+
 	cfg, err := buildkite.LoadConfig(ctx)
 	checkError(err, "loading buildkite config")
 
 	switch flag.Arg(0) {
 	case "wait":
-		waitflags.Parse(subargs)
-		args := waitflags.Args()
 		branch, err := getBranchFromArgs(ctx, args)
 		checkError(err, "getting git branch")
 
@@ -159,8 +243,6 @@ and commit. Use --build-number to rebuild a specific build.
 		err = doWait(ctx, client, org, remote, branch, *waitOutputLines, *waitQuiet, *waitPipeline)
 		checkError(err, "waiting for branch")
 	case "open":
-		openflags.Parse(subargs)
-		args := openflags.Args()
 		branch, err := getBranchFromArgs(ctx, args)
 		checkError(err, "getting git branch")
 
@@ -181,8 +263,6 @@ and commit. Use --build-number to rebuild a specific build.
 
 		checkError(doOpen(ctx, openflags, client, org, remote, branch), "opening build")
 	case "cancel":
-		cancelflags.Parse(subargs)
-		args := cancelflags.Args()
 		branch, err := getBranchFromArgs(ctx, args)
 		checkError(err, "getting git branch")
 
@@ -203,8 +283,6 @@ and commit. Use --build-number to rebuild a specific build.
 
 		checkError(doCancel(ctx, client, org, remote, branch, *cancelBuildNumber), "canceling build")
 	case "rebuild":
-		rebuildflags.Parse(subargs)
-		args := rebuildflags.Args()
 		branch, err := getBranchFromArgs(ctx, args)
 		checkError(err, "getting git branch")
 
@@ -224,6 +302,32 @@ and commit. Use --build-number to rebuild a specific build.
 		}
 
 		checkError(doRebuild(ctx, client, org, remote, branch, *rebuildBuildNumber), "rebuilding build")
+	case "logs":
+		branch, err := getBranchFromArgs(ctx, args)
+		checkError(err, "getting git branch")
+
+		remote, err := getRemoteURL(*logsRemote)
+		checkError(err, "loading git info")
+		gitRemote := remote.Path
+		org, ok := cfg.OrgForRemote(gitRemote)
+		if !ok {
+			slog.Warn("could not find a Buildkite org for remote", "remote", gitRemote)
+			org = buildkite.Organization{
+				Name: gitRemote,
+			}
+		}
+		client, err := newClient(cfg, gitRemote)
+		if err != nil {
+			checkError(err, "creating Buildkite client")
+		}
+
+		checkError(doLogs(ctx, client, org, remote, branch, logsOptions{
+			BuildNumber: *logsBuildNumber,
+			Pipeline:    *logsPipeline,
+			Dir:         *logsDir,
+			FailedOnly:  *logsFailed,
+			Raw:         *logsRaw,
+		}), "downloading logs")
 	default:
 		fmt.Fprintf(os.Stderr, "buildkite: unknown command %q\n\n", flag.Arg(0))
 		usage()
