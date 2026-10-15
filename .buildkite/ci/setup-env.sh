@@ -24,7 +24,7 @@ cd "${SETUP_ENV_REPO_ROOT}"
 
 export GOTOOLCHAIN=local
 export DIFFER_VERSION="${DIFFER_VERSION:-v1.4.0}"
-export STATICCHECK_VERSION="${STATICCHECK_VERSION:-v0.8.1}"
+export STATICCHECK_VERSION="${STATICCHECK_VERSION:-v0.8.2}"
 
 goflags="${GOFLAGS:-}"
 if [[ -n "${goflags}" ]]; then
