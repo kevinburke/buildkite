@@ -1,10 +1,10 @@
 module github.com/kevinburke/buildkite
 
-go 1.26.0
+go 1.26.7
 
 require (
 	charm.land/glamour/v2 v2.0.1
-	charm.land/lipgloss/v2 v2.0.6
+	charm.land/lipgloss/v2 v2.1.0
 	github.com/BurntSushi/toml v1.6.0
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/kevinburke/bigtext v0.0.0-20220519224329-c26d116ded71
