@@ -67,7 +67,7 @@ func doLogs(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 }
 
 // findBuild returns the pipeline slug and the build to act on: build number
-// buildNumber if it is set, otherwise the latest build for the tip of branch.
+// buildNumber if it is set, otherwise the best matching build for the tip of branch.
 func findBuild(ctx context.Context, client *buildkite.Client, orgName string, remote *RemoteURL, branch string, buildNumber int64, pipeline string) (string, buildkite.Build, error) {
 	slug := remote.RepoName
 	pinned := pipeline != ""
@@ -92,7 +92,7 @@ func findBuild(ctx context.Context, client *buildkite.Client, orgName string, re
 	if err != nil {
 		return "", buildkite.Build{}, err
 	}
-	build, err := getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+	build, err := getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
 	if err == nil {
 		return slug, build, nil
 	}
@@ -104,15 +104,15 @@ func findBuild(ctx context.Context, client *buildkite.Client, orgName string, re
 		}
 		return "", buildkite.Build{}, err
 	}
-	candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+	candidates, err := findPipelineSlugs(ctx, client, orgName, remote)
 	if err != nil {
 		return "", buildkite.Build{}, err
 	}
-	slug, err = tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
+	slug, err = tryPipelineCandidates(ctx, client, orgName, remote, candidates, branch, tip)
 	if err != nil {
 		return "", buildkite.Build{}, err
 	}
-	build, err = getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+	build, err = getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
 	if err == errNoBuilds || err == errNoPipelineBuilds {
 		return "", buildkite.Build{}, fmt.Errorf("no build found for commit %s on branch %s in pipeline %q", tip, branch, slug)
 	}

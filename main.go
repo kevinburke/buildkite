@@ -13,8 +13,9 @@
 //	version             Print the current version
 //	wait                Wait for tests to finish on a branch.
 //
-// Commands that act on a build use the latest build for the current branch and
-// commit, unless you pass a branch or ref (e.g. "buildkite logs main").
+// Commands that act on a build choose the best repository and branch match for
+// the current commit, using the newest build to break ties. Pass a branch or ref
+// to use a different commit (e.g. "buildkite logs main").
 //
 // Use "buildkite help [command]" or "buildkite [command] --help" for more
 // information about a command.
@@ -56,8 +57,9 @@ The commands are:
 	version             Print the current version
 	wait                Wait for tests to finish on a branch.
 
-Commands that act on a build use the latest build for the current branch and
-commit, unless you pass a branch or ref (e.g. "buildkite logs main").
+Commands that act on a build choose the best repository and branch match for
+the current commit, using the newest build to break ties. Pass a branch or ref
+to use a different commit (e.g. "buildkite logs main").
 
 Use "buildkite help [command]" or "buildkite [command] --help" for more
 information about a command.
@@ -353,14 +355,18 @@ func failError(err error, msg string) {
 	os.Exit(1)
 }
 
-func getBuilds(ctx context.Context, client *buildkite.Client, org, repo, branch string, perPage int) ([]buildkite.Build, error) {
+func getBuilds(ctx context.Context, client *buildkite.Client, org, repo, branch, commit string, perPage, page int) ([]buildkite.Build, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	params := url.Values{
 		"per_page": []string{strconv.Itoa(perPage)},
+		"page":     []string{strconv.Itoa(page)},
 	}
 	if branch != "" {
 		params["branch"] = []string{branch}
+	}
+	if commit != "" {
+		params["commit"] = []string{commit}
 	}
 	builds, err := client.Organization(org).Pipeline(repo).ListBuilds(ctx, params)
 	if err != nil {
@@ -369,38 +375,63 @@ func getBuilds(ctx context.Context, client *buildkite.Client, org, repo, branch 
 	return builds, nil
 }
 
-// getLatestBuildForCommit finds the latest build matching a specific commit.
-// It first tries filtering by branch name, then falls back to searching all recent builds.
-// This handles cases where the branch name in Buildkite might be prefixed (e.g., "fork:branch").
-func getLatestBuildForCommit(ctx context.Context, client *buildkite.Client, org, repo, branch, commit string) (buildkite.Build, error) {
-	// First try with branch filter (fast path for non-fork cases)
-	builds, err := getBuilds(ctx, client, org, repo, branch, 3)
+// buildMatchScore reuses pipeline discovery's repository scoring for a build's
+// source repository. A pull request can build a fork inside an upstream pipeline.
+// Branch preference only breaks repository-score ties: exact branch, other
+// unprefixed branches, then fork-prefixed branches. Build state is irrelevant.
+func buildMatchScore(remote *RemoteURL, branch string, build buildkite.Build) int {
+	repository := build.Pipeline.Repository
+	if build.PullRequest != nil && build.PullRequest.Repository != "" {
+		repository = build.PullRequest.Repository
+	} else if strings.Contains(build.Branch, ":") {
+		// A fork prefix without source metadata must not inherit the upstream
+		// pipeline's repository score.
+		repository = ""
+	}
+	branchScore := 0
+	if branch != "" && build.Branch == branch {
+		branchScore = 2
+	} else if !strings.Contains(build.Branch, ":") {
+		branchScore = 1
+	}
+	return 3*repoSimilarityScore(remote.Path, remote.RepoName, repository) + branchScore
+}
+
+// getLatestBuildForCommit finds the best repository and branch match for a full
+// commit SHA. The newest build wins equal scores, including rebuilds. Search all
+// pages of that commit's builds so newer fork builds cannot hide an upstream one.
+func getLatestBuildForCommit(ctx context.Context, client *buildkite.Client, org, repo string, remote *RemoteURL, branch, commit string) (buildkite.Build, error) {
+	const perPage = 100
+	var best buildkite.Build
+	bestScore := -1
+	for page := 1; ; page++ {
+		builds, err := getBuilds(ctx, client, org, repo, "", commit, perPage, page)
+		if err != nil {
+			return buildkite.Build{}, err
+		}
+		for _, build := range builds {
+			if build.Commit != commit {
+				continue
+			}
+			if score := buildMatchScore(remote, branch, build); score > bestScore {
+				best, bestScore = build, score
+			}
+		}
+		if len(builds) < perPage {
+			break
+		}
+	}
+	if bestScore >= 0 {
+		slog.Debug("Selected build for commit", "commit", commit, "branch", best.Branch, "number", best.Number, "score", bestScore)
+		return best, nil
+	}
+
+	// An empty filtered result says nothing about the pipeline's history.
+	// Probe for any build before deciding whether to rediscover the pipeline.
+	builds, err := getBuilds(ctx, client, org, repo, "", "", 1, 1)
 	if err != nil {
 		return buildkite.Build{}, err
 	}
-
-	// Check if any of the builds match our commit
-	for _, build := range builds {
-		if build.Commit == commit {
-			return build, nil
-		}
-	}
-
-	// Fallback: search without branch filter (handles fork cases like "forkname:branch")
-	slog.Debug("No builds found with branch filter, trying without branch filter", "branch", branch, "commit", commit)
-	builds, err = getBuilds(ctx, client, org, repo, "", 30)
-	if err != nil {
-		return buildkite.Build{}, err
-	}
-
-	// Search for matching commit
-	for _, build := range builds {
-		if build.Commit == commit {
-			slog.Debug("Found build via fallback", "commit", commit, "branch", build.Branch, "number", build.Number)
-			return build, nil
-		}
-	}
-
 	if len(builds) == 0 {
 		return buildkite.Build{}, errNoPipelineBuilds
 	}
@@ -504,7 +535,7 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 		slug = cached
 	}
 
-	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
 	if err != nil {
 		// errNoBuilds is deliberately absent here. It means the pipeline is
 		// real and building this repo, so the only thing missing is our own
@@ -515,11 +546,11 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 		berr, isBuildkiteErr := err.(*buildkite.Error)
 		switch {
 		case (isBuildkiteErr && berr.StatusCode == 404) || err == errNoPipelineBuilds:
-			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+			candidates, err := findPipelineSlugs(ctx, client, orgName, remote)
 			if err != nil {
 				return err
 			}
-			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, remote, candidates, branch, tip)
 			if err != nil {
 				return err
 			}
@@ -537,7 +568,7 @@ func doOpen(ctx context.Context, flags *flag.FlagSet, client *buildkite.Client, 
 	networkErrorTolerance := 5 * time.Minute
 	var networkErrorStartedAt time.Time
 	for {
-		latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+		latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
 		if err != nil {
 			if isHttpError(err) {
 				now := time.Now()
@@ -598,24 +629,24 @@ func doCancel(ctx context.Context, client *buildkite.Client, org buildkite.Organ
 		return err
 	}
 
-	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
 	if err != nil {
 		if berr, ok := err.(*buildkite.Error); ok && berr.StatusCode == 404 {
-			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+			candidates, err := findPipelineSlugs(ctx, client, orgName, remote)
 			if err != nil {
 				return err
 			}
-			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, remote, candidates, branch, tip)
 			if err != nil {
 				return err
 			}
 			slug = foundSlug
 		} else if err == errNoBuilds {
-			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+			candidates, err := findPipelineSlugs(ctx, client, orgName, remote)
 			if err != nil {
 				return err
 			}
-			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, remote, candidates, branch, tip)
 			if err != nil {
 				return err
 			}
@@ -625,7 +656,7 @@ func doCancel(ctx context.Context, client *buildkite.Client, org buildkite.Organ
 		}
 	}
 
-	latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+	latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
 	if err != nil {
 		if err == errNoBuilds {
 			return fmt.Errorf("no builds found for %s/%s on branch %s", remote.Path, remote.RepoName, branch)
@@ -663,24 +694,24 @@ func doRebuild(ctx context.Context, client *buildkite.Client, org buildkite.Orga
 		return err
 	}
 
-	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
 	if err != nil {
 		if berr, ok := err.(*buildkite.Error); ok && berr.StatusCode == 404 {
-			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+			candidates, err := findPipelineSlugs(ctx, client, orgName, remote)
 			if err != nil {
 				return err
 			}
-			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, remote, candidates, branch, tip)
 			if err != nil {
 				return err
 			}
 			slug = foundSlug
 		} else if err == errNoBuilds {
-			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+			candidates, err := findPipelineSlugs(ctx, client, orgName, remote)
 			if err != nil {
 				return err
 			}
-			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, remote, candidates, branch, tip)
 			if err != nil {
 				return err
 			}
@@ -690,7 +721,7 @@ func doRebuild(ctx context.Context, client *buildkite.Client, org buildkite.Orga
 		}
 	}
 
-	latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+	latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
 	if err != nil {
 		if err == errNoBuilds {
 			return fmt.Errorf("no builds found for %s/%s on branch %s", remote.Path, remote.RepoName, branch)
@@ -877,7 +908,8 @@ type ScoredSlug struct {
 	Score int
 }
 
-func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName, slug string) ([]ScoredSlug, error) {
+func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName string, remote *RemoteURL) ([]ScoredSlug, error) {
+	slug := remote.RepoName
 
 	ctxA, cancelA := context.WithCancel(ctx)
 	ctxB, cancelB := context.WithCancel(ctx)
@@ -914,7 +946,7 @@ func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName, s
 		if pipelines != nil {
 			var candidates []ScoredSlug
 			for _, p := range pipelines {
-				score := repoSimilarityScore(orgName, slug, p.Repository)
+				score := repoSimilarityScore(remote.Path, slug, p.Repository)
 				if score > 0 {
 					candidates = append(candidates, ScoredSlug{Slug: p.Slug, Score: score})
 				}
@@ -966,7 +998,7 @@ func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName, s
 			if resp != nil {
 				for _, node := range resp.Data.Organization.Pipelines.Edges {
 					if node.Node.Repository.URL != "" {
-						score := repoSimilarityScore(orgName, slug, node.Node.Repository.URL)
+						score := repoSimilarityScore(remote.Path, slug, node.Node.Repository.URL)
 						if score > 0 {
 							candidates = append(candidates, ScoredSlug{Slug: node.Node.Slug, Score: score})
 						}
@@ -1044,7 +1076,7 @@ func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName, s
 }
 
 // tryPipelineCandidates tries each pipeline candidate in order until it finds one with builds matching the commit
-func tryPipelineCandidates(ctx context.Context, client *buildkite.Client, orgName string, candidates []ScoredSlug, branch, commit string) (string, error) {
+func tryPipelineCandidates(ctx context.Context, client *buildkite.Client, orgName string, remote *RemoteURL, candidates []ScoredSlug, branch, commit string) (string, error) {
 	// A candidate that builds this repo but has no build for our commit is
 	// still the right pipeline -- the commit was pushed seconds ago and the
 	// build has not been created yet. Remember the best-scoring one of those
@@ -1053,7 +1085,7 @@ func tryPipelineCandidates(ctx context.Context, client *buildkite.Client, orgNam
 	var pipelineWithoutOurBuild string
 	for i, candidate := range candidates {
 		slog.Debug("Trying pipeline candidate", "slug", candidate.Slug, "score", candidate.Score, "attempt", i+1, "total", len(candidates))
-		_, err := getLatestBuildForCommit(ctx, client, orgName, candidate.Slug, branch, commit)
+		_, err := getLatestBuildForCommit(ctx, client, orgName, candidate.Slug, remote, branch, commit)
 		if err == nil {
 			slog.Debug("Found builds for pipeline", "slug", candidate.Slug)
 			return candidate.Slug, nil
@@ -1095,7 +1127,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 		slug = cached
 	}
 
-	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
 	if err != nil && pinnedPipeline && err != errNoBuilds && err != errNoPipelineBuilds {
 		return err
 	}
@@ -1109,11 +1141,11 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 		berr, isBuildkiteErr := err.(*buildkite.Error)
 		switch {
 		case (isBuildkiteErr && berr.StatusCode == 404) || err == errNoPipelineBuilds:
-			candidates, err := findPipelineSlugs(ctx, client, orgName, slug)
+			candidates, err := findPipelineSlugs(ctx, client, orgName, remote)
 			if err != nil {
 				return err
 			}
-			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, candidates, branch, tip)
+			foundSlug, err := tryPipelineCandidates(ctx, client, orgName, remote, candidates, branch, tip)
 			if err != nil {
 				return err
 			}
@@ -1132,7 +1164,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 	}
 	var lastPrintedAt time.Time
 	var previousBuild *buildkite.Build
-	builds, err := getBuilds(ctx, client, orgName, slug, branch, 3)
+	builds, err := getBuilds(ctx, client, orgName, slug, branch, "", 3, 1)
 	if err == nil {
 		for i := 1; i < len(builds); i++ {
 			if builds[i].State == "passed" {
@@ -1165,7 +1197,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 	buildCreateDeadline := time.Now().Add(buildCreateTimeout)
 	var announcedMissingBuild bool
 	for !done {
-		latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, branch, tip)
+		latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
 		if err != nil {
 			if err == errNoBuilds || err == errNoPipelineBuilds {
 				if time.Now().After(buildCreateDeadline) {

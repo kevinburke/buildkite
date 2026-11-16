@@ -105,6 +105,15 @@ buildkite wait
 
 This will wait for your build to complete and then print out summary statistics.
 
+Build lookup searches by the full commit SHA and scores matching builds in the
+selected pipeline using the same repository similarity rules as pipeline
+discovery. Pull request builds are scored using their source repository;
+other builds use the pipeline repository. A stronger repository match wins
+over a branch match. Equal repository scores prefer the requested branch,
+then other unprefixed branches, then fork-prefixed branches. The newest build
+breaks remaining ties, regardless of whether it passed or failed. All pages
+of matching builds are checked, so newer fork builds cannot hide a better match.
+
 `wait` exits 0 if the build passed and 1 if it failed. It exits **75**
 (`EX_TEMPFAIL`) when it could not reach a verdict at all -- the API refused us
 for long enough to give up, or no build was ever created for the commit. A

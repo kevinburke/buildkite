@@ -1,5 +1,13 @@
 ## Unreleased
 
+- Find builds by commit SHA instead of scanning only the latest 3 branch
+  builds or 30 pipeline builds. Busy pipelines can no longer hide a matching
+  build, including builds with fork-prefixed branch names. Score all matching
+  builds using the same repository similarity rules as pipeline discovery,
+  preferring stronger repository matches over branch matches and using
+  recency to break ties. Both searches score against the Git repository,
+  even when the Buildkite organization and pipeline have different names.
+
 - Add `buildkite logs`, which downloads the log for each job in a build to a
   temporary directory (or `--dir`) and prints the directory. `--failed`
   limits it to failed jobs. Logs are stripped of color codes, timestamp
