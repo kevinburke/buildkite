@@ -139,9 +139,14 @@ push hook that creates builds, and any script you run. Two things follow, and
 
 If your Buildkite pipeline slug does not match your git remote, `wait` searches
 the organization for it, which costs a burst of requests. It writes the answer
-to `buildkite.pipeline` in git config so the search happens once; pass
-`--pipeline <slug>` to skip it entirely, or `git config --unset
-buildkite.pipeline` to make it search again.
+to `buildkite.pipeline` in git config for future runs. If the selected pipeline
+still has no build for the commit after 30 seconds, `wait` searches related
+pipelines, including forks, in repository-score order. It reuses that candidate
+list and checks their builds every 30 seconds until a match appears or the
+creation timeout expires. A matching build switches the wait to that pipeline
+and updates the cache; once a build has been seen, the wait stays with its
+pipeline. Pass `--pipeline <slug>` to pin the pipeline and disable this fallback,
+or `git config --unset buildkite.pipeline` to discard the cached selection.
 
 Or if you want to open the running build in your browser:
 

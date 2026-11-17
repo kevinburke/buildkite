@@ -244,7 +244,7 @@ func TestGetLatestBuildForCommitAPIError(t *testing.T) {
 }
 
 func TestFindPipelineSlugsUsesGitRepository(t *testing.T) {
-	for _, source := range []string{"REST", "GraphQL"} {
+	for _, source := range []string{"REST", "REST paginated", "REST paginated error", "GraphQL"} {
 		t.Run(source, func(t *testing.T) {
 			pipelines := []buildkite.Pipeline{
 				{Slug: "fork", Repository: "https://github.com/ci-org/repo.git"},
@@ -254,12 +254,29 @@ func TestFindPipelineSlugsUsesGitRepository(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
 				case "/v2/organizations/ci-org/pipelines":
-					if source != "REST" {
+					if source == "GraphQL" {
 						w.WriteHeader(http.StatusForbidden)
 						fmt.Fprint(w, `{"message":"use GraphQL"}`)
 						return
 					}
-					if err := json.NewEncoder(w).Encode(pipelines); err != nil {
+					page := pipelines
+					if strings.HasPrefix(source, "REST paginated") {
+						switch r.URL.Query().Get("page") {
+						case "1":
+							page = make([]buildkite.Pipeline, 100)
+							page[0] = pipelines[1] // Exact match, but the fork is on page two.
+						case "2":
+							if source == "REST paginated error" {
+								w.WriteHeader(http.StatusForbidden)
+								fmt.Fprint(w, `{"message":"access denied"}`)
+								return
+							}
+							page = pipelines[:1]
+						default:
+							t.Errorf("unexpected pipeline page: %s", r.URL)
+						}
+					}
+					if err := json.NewEncoder(w).Encode(page); err != nil {
 						t.Error(err)
 					}
 				case "/v1":
@@ -299,6 +316,12 @@ func TestFindPipelineSlugsUsesGitRepository(t *testing.T) {
 			client.Client.Base = server.URL
 			client.GraphQLClient.Base = server.URL
 			candidates, err := findPipelineSlugs(t.Context(), client, "ci-org", &RemoteURL{Path: "git-org", RepoName: "repo"})
+			if source == "REST paginated error" {
+				if err == nil || len(candidates) != 0 {
+					t.Fatalf("got candidates %v, error %v; want pagination failure without partial candidates", candidates, err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

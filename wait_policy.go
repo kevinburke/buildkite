@@ -62,6 +62,10 @@ const (
 	// rate limit window is a minute, so waiting longer than this only makes
 	// the wait less responsive without saving further requests.
 	maxPollInterval = 30 * time.Second
+	// pipelineFallbackInterval gives the selected pipeline time to create a
+	// build before checking related pipelines, including forks. Reuse the
+	// interval for subsequent checks to avoid searching on every poll.
+	pipelineFallbackInterval = 30 * time.Second
 	// buildCreateTimeout is how long to keep asking for a build that does not
 	// exist yet. The build is created by a fire-and-forget POST from the git
 	// post-receive hook, so it lands a moment after the push -- and if that
@@ -130,9 +134,9 @@ func sleepUntilNextPoll(ctx context.Context, client *buildkite.Client) error {
 
 // pipelineSlugConfigKey names the git config entry holding the Buildkite
 // pipeline for this checkout. Discovery costs a burst of API requests against
-// a window shared with everything else using the token, and its answer does
-// not change from one run to the next, so it is written down. `git config
-// --unset buildkite.pipeline` clears it, and --pipeline overrides it.
+// a window shared with everything else using the token, so cache the selection.
+// A missing-build wait may replace it with a pipeline that has the commit.
+// `git config --unset buildkite.pipeline` clears it; --pipeline overrides it.
 const pipelineSlugConfigKey = "buildkite.pipeline"
 
 func cachedPipelineSlug() (string, bool) {

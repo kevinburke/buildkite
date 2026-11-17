@@ -483,9 +483,9 @@ func isHttpError(err error) bool {
 	}
 }
 
-// errNoBuilds means the pipeline is real and has builds, just not one for
-// the commit we asked about -- almost always because it was pushed a moment
-// ago and the build has not been created yet.
+// errNoBuilds means the pipeline has history, but no build for the commit we
+// asked about. The build may not have been created yet, or another pipeline
+// (including one backed by a fork) may be building this commit.
 var errNoBuilds = errors.New("buildkite: no builds")
 
 // errNoPipelineBuilds means the pipeline has never built anything, which is
@@ -935,22 +935,29 @@ func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName st
 	wg.Add(1)
 	go func() {
 		const perPage = 100
-		page := 1
-
 		defer wg.Done()
 		data := url.Values{}
 		data.Set("per_page", strconv.Itoa(perPage))
-		data.Set("page", strconv.Itoa(page))
-		pipelines, err := client.Organization(orgName).ListPipelines(ctxA, data)
-		res := ResultWithCandidates{RequestType: "A", Error: err}
-		if pipelines != nil {
-			var candidates []ScoredSlug
+		res := ResultWithCandidates{RequestType: "A"}
+		var candidates []ScoredSlug
+		for page := 1; ; page++ {
+			data.Set("page", strconv.Itoa(page))
+			pipelines, err := client.Organization(orgName).ListPipelines(ctxA, data)
+			if err != nil {
+				res.Error = err
+				break
+			}
 			for _, p := range pipelines {
 				score := repoSimilarityScore(remote.Path, slug, p.Repository)
 				if score > 0 {
 					candidates = append(candidates, ScoredSlug{Slug: p.Slug, Score: score})
 				}
 			}
+			if len(pipelines) < perPage {
+				break
+			}
+		}
+		if res.Error == nil {
 			// Sort by score descending
 			for i := 0; i < len(candidates)-1; i++ {
 				for j := i + 1; j < len(candidates); j++ {
@@ -1077,11 +1084,10 @@ func findPipelineSlugs(ctx context.Context, client *buildkite.Client, orgName st
 
 // tryPipelineCandidates tries each pipeline candidate in order until it finds one with builds matching the commit
 func tryPipelineCandidates(ctx context.Context, client *buildkite.Client, orgName string, remote *RemoteURL, candidates []ScoredSlug, branch, commit string) (string, error) {
-	// A candidate that builds this repo but has no build for our commit is
-	// still the right pipeline -- the commit was pushed seconds ago and the
-	// build has not been created yet. Remember the best-scoring one of those
-	// so that a freshly pushed commit does not report "no pipeline", which is
-	// a claim about the repository rather than about the timing.
+	// A candidate with history but no build for our commit may still be the
+	// right pipeline: the build might not have been created yet. Remember the
+	// best-scoring one so the wait loop can give it a grace period before
+	// checking alternatives again.
 	var pipelineWithoutOurBuild string
 	for i, candidate := range candidates {
 		slog.Debug("Trying pipeline candidate", "slug", candidate.Slug, "score", candidate.Score, "attempt", i+1, "total", len(candidates))
@@ -1115,6 +1121,7 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 	if err != nil {
 		return err
 	}
+	startedWaiting := time.Now()
 	orgName, slug := org.Name, remote.RepoName
 
 	// An explicit slug is the caller's answer and is never second-guessed;
@@ -1128,16 +1135,14 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 	}
 
 	_, err = getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
+	foundBuild := err == nil
 	if err != nil && pinnedPipeline && err != errNoBuilds && err != errNoPipelineBuilds {
 		return err
 	}
 	if err != nil && !pinnedPipeline {
-		// errNoBuilds is deliberately absent here. It means the pipeline is
-		// real and building this repo, so the only thing missing is our own
-		// commit's build, and the wait loop below is what handles that.
-		// Searching every pipeline in the organization for a build that was
-		// pushed two seconds ago spends a burst of requests to answer a
-		// question that answers itself.
+		// A pipeline with history gets a grace period for the current commit
+		// before the wait loop searches alternatives. Existing builds alone
+		// do not prove this is the right pipeline, even for an exact repo match.
 		berr, isBuildkiteErr := err.(*buildkite.Error)
 		switch {
 		case (isBuildkiteErr && berr.StatusCode == 404) || err == errNoPipelineBuilds:
@@ -1195,16 +1200,19 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 	// appear before saying anything; a single miss used to be fatal within a
 	// second of starting.
 	buildCreateDeadline := time.Now().Add(buildCreateTimeout)
+	search := waitBuildSearch{
+		slug: slug, pinned: pinnedPipeline, foundBuild: foundBuild,
+		nextSearch: startedWaiting.Add(pipelineFallbackInterval),
+	}
 	var announcedMissingBuild bool
 	for !done {
-		latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
+		latestBuild, err := search.latest(ctx, client, orgName, remote, branch, tip, time.Now())
 		if err != nil {
 			if err == errNoBuilds || err == errNoPipelineBuilds {
 				if time.Now().After(buildCreateDeadline) {
-					return temporary("no Buildkite build was created for %s on %s within %s.\n"+
-						"The push succeeded, so the build trigger is what failed -- most often the\n"+
-						"git post-receive hook being refused by the API rate limit. Check that the\n"+
-						"commit was pushed, then trigger a build for it by hand.",
+					return temporary("no Buildkite build was found for %s on %s within %s.\n"+
+						"Check that the commit was pushed and the pipeline selection is correct.\n"+
+						"If no build exists, check its trigger or create one by hand.",
 						tip, branch, buildCreateTimeout)
 				}
 				if !quiet && !announcedMissingBuild {
@@ -1239,6 +1247,14 @@ func doWait(ctx context.Context, client *buildkite.Client, org buildkite.Organiz
 				continue
 			}
 			return err
+		}
+		if slug != search.slug {
+			slug = search.slug
+			cachePipelineSlug(slug)
+			// Timing from the old pipeline is not a useful estimate for this one.
+			previousBuild = nil
+			networkErrorTolerance = 5 * time.Minute
+			lastPrintedAt = time.Time{}
 		}
 		// Request succeeded, reset network error tracking
 		networkErrorStartedAt = time.Time{}

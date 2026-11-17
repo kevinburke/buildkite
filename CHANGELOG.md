@@ -1,5 +1,12 @@
 ## Unreleased
 
+- After 30 seconds without a build for the commit, `wait` checks related
+  pipelines, including forks, even if the original pipeline is an exact
+  repository match. Recheck alternatives every 30 seconds using the same
+  repository scoring, and cache a new pipeline only when its build matches.
+  An explicit `--pipeline` stays pinned. REST pipeline discovery now checks
+  every page so a fork cannot be hidden behind the first 100 pipelines.
+
 - Find builds by commit SHA instead of scanning only the latest 3 branch
   builds or 30 pipeline builds. Busy pipelines can no longer hide a matching
   build, including builds with fork-prefixed branch names. Score all matching
