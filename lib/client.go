@@ -367,6 +367,29 @@ func (p *PipelineService) ListBuilds(ctx context.Context, query url.Values) (Lis
 	return val, err
 }
 
+// CreateBuild starts a build for the given commit and branch, even if that
+// commit has never been built before. It returns the newly created build.
+func (p *PipelineService) CreateBuild(ctx context.Context, commit, branch, message string) (Build, error) {
+	data, err := json.Marshal(map[string]string{
+		"commit":  commit,
+		"branch":  branch,
+		"message": message,
+	})
+	if err != nil {
+		return Build{}, err
+	}
+	path := "/" + APIVersion + "/organizations/" + p.org + "/pipelines/" + p.pipeline + "/builds"
+	req, err := p.client.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewReader(data))
+	if err != nil {
+		return Build{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", userAgent)
+	var val Build
+	err = p.client.Do(req, &val)
+	return val, err
+}
+
 type JobService struct {
 	client      *Client
 	org         string

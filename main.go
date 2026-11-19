@@ -31,6 +31,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -130,12 +131,13 @@ and commit. Use --build-number to cancel a specific build.
 	}
 	rebuildflags := flag.NewFlagSet("rebuild", flag.ExitOnError)
 	rebuildRemote := rebuildflags.String("remote", "origin", "Git remote to use")
-	rebuildBuildNumber := rebuildflags.Int64("build-number", 0, "Build number to rebuild (if not specified, rebuilds the latest build for the current commit)")
+	rebuildBuildNumber := rebuildflags.Int64("build-number", 0, "Build number to rebuild (if not specified, rebuilds the latest build for the current commit, or creates one if missing)")
 	rebuildflags.Usage = func() {
 		fmt.Fprintf(os.Stderr, `usage: rebuild [--build-number N] [refspec]
 
 Rebuild a build. By default, rebuilds the latest build for the current branch
-and commit. Use --build-number to rebuild a specific build.
+and commit, or creates a build if that commit has never been built.
+Use --build-number to rebuild a specific build.
 
 `)
 		rebuildflags.PrintDefaults()
@@ -716,15 +718,15 @@ func doRebuild(ctx context.Context, client *buildkite.Client, org buildkite.Orga
 				return err
 			}
 			slug = foundSlug
-		} else {
+		} else if err != errNoPipelineBuilds {
 			return err
 		}
 	}
 
 	latestBuild, err := getLatestBuildForCommit(ctx, client, orgName, slug, remote, branch, tip)
 	if err != nil {
-		if err == errNoBuilds {
-			return fmt.Errorf("no builds found for %s/%s on branch %s", remote.Path, remote.RepoName, branch)
+		if err == errNoBuilds || err == errNoPipelineBuilds {
+			return createBuild(ctx, client, orgName, slug, branch, tip)
 		}
 		return err
 	}
@@ -742,6 +744,24 @@ func rebuildBuild(ctx context.Context, client *buildkite.Client, org, pipeline s
 	}
 	fmt.Printf("Rebuilt build %d -> new build %d (state: %s)\n", buildNumber, build.Number, build.State)
 	fmt.Printf("URL: %s\n", build.WebURL)
+	return nil
+}
+
+// createBuild starts the first build for a commit, which has no build number
+// that could be passed to the rebuild endpoint.
+func createBuild(ctx context.Context, client *buildkite.Client, org, pipeline, branch, commit string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	message, err := exec.CommandContext(ctx, "git", "log", "-1", "--format=%B", commit).Output()
+	if err != nil {
+		return fmt.Errorf("reading commit message for %s: %w", commit, err)
+	}
+	build, err := client.Organization(org).Pipeline(pipeline).CreateBuild(ctx, commit, branch, strings.TrimSpace(string(message)))
+	if err != nil {
+		return fmt.Errorf("failed to create build for %s on %s: %w", commit, branch, err)
+	}
+	slog.Info("Created build", "number", build.Number, "state", build.State, "url", build.WebURL)
 	return nil
 }
 

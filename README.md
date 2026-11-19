@@ -120,6 +120,13 @@ for long enough to give up, or no build was ever created for the commit. A
 caller that merges on green should retry that status rather than report a
 failed build.
 
+To rerun CI for the current commit, use `buildkite rebuild`. If a build already
+exists, this rebuilds it; otherwise it creates a build for the requested commit
+and branch using the commit message. This also works when a commit arrived
+through a GitHub mirror without triggering a build. Pass a branch or ref to
+select another commit, or `--build-number N` to rebuild an existing build by
+number. API errors are reported rather than treated as a missing build.
+
 #### Sharing an API token between concurrent waits
 
 Buildkite's REST rate limit is enforced per API token over a fixed one-minute

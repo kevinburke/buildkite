@@ -1,5 +1,10 @@
 ## Unreleased
 
+- `buildkite rebuild` creates a build for the requested commit and branch
+  when no build exists yet, including a pipeline's first build. Existing
+  builds and explicit `--build-number` selections still use the rebuild
+  endpoint. Creation uses the Git commit message and reports API failures.
+
 - After 30 seconds without a build for the commit, `wait` checks related
   pipelines, including forks, even if the original pipeline is an exact
   repository match. Recheck alternatives every 30 seconds using the same
